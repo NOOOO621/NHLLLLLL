@@ -1,0 +1,2700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b1017">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{color-scheme:dark;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%}
+body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<title>Slapshot 3v3</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: jumbotron scoreboard on top, a camera that follows the puck down a vertical rink, thumb controls underneath */
+:root{
+  --arena:#0b1017; --panel:#141c27; --panel-2:#1b2532; --edge:#2a3649;
+  --text:#eef3f8; --muted:#8c9db4;
+  --home:#2f6bff; --away:#e5394a; --lamp:#ffb627; --lamp-ink:#1d1405;
+  --f-display:"Teko","Impact","Arial Narrow",sans-serif;
+  --f-ui:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body{background:var(--arena);color:var(--text);font-family:var(--f-ui);font-size:16px;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#app{height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;
+  max-width:760px;margin:0 auto;padding-block:8px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+button:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+
+/* scoreboard */
+.board{display:grid;grid-template-columns:1fr auto 1fr auto;align-items:center;gap:10px;
+  background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:4px 6px 4px 12px}
+.team{display:flex;align-items:center;gap:10px;min-width:0}
+.team.away{justify-content:flex-end}
+.tname{font-weight:700;font-size:15px;letter-spacing:.14em;color:var(--muted);display:flex;align-items:center;gap:6px}
+.tname::before{content:"";width:10px;height:10px;border-radius:2px;background:var(--c)}
+.home{--c:var(--home)} .away{--c:var(--away)}
+.tscore{font-family:var(--f-display);font-weight:600;font-size:44px;line-height:.9;padding-top:4px;font-variant-numeric:tabular-nums}
+.clock{display:flex;flex-direction:column;align-items:center;background:#05080c;border-radius:6px;padding:2px 12px 0;border:1px solid var(--edge)}
+#per{font-weight:700;font-size:12px;letter-spacing:.2em;color:var(--lamp)}
+#clk{font-family:var(--f-display);font-size:32px;line-height:.9;font-variant-numeric:tabular-nums;color:var(--lamp)}
+#pauseBtn{width:38px;height:38px;border-radius:8px;background:var(--panel-2);border:1px solid var(--edge);display:grid;place-items:center}
+#pauseBtn svg{width:14px;height:14px;fill:var(--text)}
+
+/* rink stage */
+#stage{flex:1;min-height:0;position:relative;border-radius:12px;overflow:hidden;background:var(--arena)}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* play-by-play: one slim ticker line across the top of the rink, out of the way of the play */
+#netBadge{position:absolute;left:8px;top:28px;z-index:12;padding:2px 8px;border-radius:6px;background:rgba(7,10,15,.72);font:700 12px var(--f-ui);letter-spacing:.06em;color:var(--muted);pointer-events:none}
+#netBadge.good{color:#7ddc8a}#netBadge.ok{color:var(--lamp)}#netBadge.bad{color:#ff7a7a}
+#pbp{position:absolute;left:0;right:0;top:0;pointer-events:none;display:flex;justify-content:center}
+#pbp .pl{display:none}
+#pbp .pl:first-child{display:block;max-width:100%;box-sizing:border-box;padding:3px 10px;background:rgba(7,10,15,.72);color:var(--text);
+  font-size:13px;font-weight:600;line-height:1.25;border-radius:0 0 8px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pbp .p3:first-child{color:var(--lamp)}
+#pbp.off{display:none}
+/* menus sit above the rink's emote button; banners sit above menus */
+.ov{z-index:30}
+#toast{z-index:40;position:absolute;left:0;right:0;top:38%;text-align:center;pointer-events:none;
+  font-family:var(--f-display);font-weight:700;font-size:72px;line-height:1;letter-spacing:.04em;
+  color:var(--text);text-shadow:0 3px 0 rgba(0,0,0,.45);opacity:0;transform:scale(.9);transition:opacity .15s,transform .15s}
+#toast.on{opacity:1;transform:scale(1)}
+#toast.home{color:var(--home);-webkit-text-stroke:1px #fff}
+#toast.away{color:var(--away);-webkit-text-stroke:1px #fff}
+#toast.small{font-size:40px;color:var(--text)}
+
+/* overlays */
+.ov{position:absolute;inset:0;display:grid;place-items:center;overflow:auto;padding:12px;
+  background:rgba(7,10,15,.8);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.card{width:100%;max-width:340px;box-sizing:border-box;background:var(--panel);border:1px solid var(--edge);
+  border-radius:14px;padding:20px;display:grid;gap:14px}
+.logo{font-family:var(--f-display);font-weight:700;font-size:68px;line-height:.78;letter-spacing:.01em;margin:6px 0 0;display:flex;align-items:flex-start;gap:8px;text-wrap:balance}
+.logo b{font-weight:600;font-size:24px;line-height:1;background:var(--lamp);color:var(--lamp-ink);padding:3px 7px 0;border-radius:4px;margin-top:4px}
+.card p{margin:0;color:var(--muted);line-height:1.35;font-size:17px}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.seg button{padding:8px 0;border-radius:8px;background:var(--panel-2);border:1px solid var(--edge);font-weight:600;font-size:17px}
+.seg button[aria-pressed="true"]{background:var(--text);color:var(--arena);border-color:var(--text)}
+.go{padding:12px;border-radius:10px;background:var(--lamp);color:var(--lamp-ink);font-family:var(--f-display);font-weight:600;font-size:28px;line-height:1;padding-top:14px;letter-spacing:.04em}
+.ghost{padding:10px;border-radius:10px;background:var(--panel-2);border:1px solid var(--edge);font-weight:600;font-size:18px}
+.how{margin:0;padding:0;list-style:none;display:grid;gap:6px;font-size:15px;color:var(--muted)}
+.how b{color:var(--text);font-weight:700;letter-spacing:.06em}
+.result{font-family:var(--f-display);font-weight:700;font-size:56px;line-height:.85;margin:4px 0 0}
+.final{display:flex;justify-content:center;gap:18px;align-items:baseline;font-family:var(--f-display);font-size:64px;line-height:.9;font-variant-numeric:tabular-nums}
+.final .h{color:var(--home)} .final .a{color:var(--away)} .final i{font-style:normal;color:var(--muted);font-size:40px}
+.stat{display:flex;justify-content:space-between;border-top:1px solid var(--edge);padding-top:10px;color:var(--muted);font-size:16px;font-variant-numeric:tabular-nums}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.trophies,.earn{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+.trophies svg,.earn svg{width:24px;height:24px;fill:var(--lamp);flex:none}
+.trophies b{font-family:var(--f-display);font-size:34px;line-height:.8;padding-top:5px;color:var(--lamp)}
+.trophies span{color:var(--muted);font-size:16px;letter-spacing:.06em}
+.trophies{flex-wrap:wrap}
+.trophies .coin{margin-left:10px}
+.coin circle{fill:#f2c94c;stroke:#a8730e;stroke-width:2}
+.coin text{font:700 12px var(--f-ui);fill:#6b4708}
+.earn{justify-content:center;background:var(--panel-2);border:1px solid var(--edge);border-radius:10px;padding:8px}
+.earn b{font-family:var(--f-display);font-size:30px;line-height:.8;padding-top:4px;color:var(--lamp)}
+.earn span{color:var(--muted);font-size:16px}
+.unlock{text-align:center;font-weight:700;letter-spacing:.06em;color:var(--lamp-ink);background:var(--lamp);border-radius:8px;padding:8px}
+.arenas{display:grid;gap:6px}
+.arena{display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:10px;text-align:left;padding:7px 10px;border-radius:9px;
+  background:var(--panel-2);border:1px solid var(--edge)}
+.arena .num{font-family:var(--f-display);font-size:26px;line-height:.8;padding-top:4px;color:var(--muted);text-align:center}
+.arena .nm{font-weight:700;font-size:18px;line-height:1.05}
+.arena .sub{display:block;font-weight:500;font-size:14px;color:var(--muted)}
+.arena .tag{font-size:13px;font-weight:700;letter-spacing:.1em;color:var(--muted)}
+.arena[aria-pressed="true"]{border-color:var(--lamp);box-shadow:inset 0 0 0 1px var(--lamp)}
+.arena[aria-pressed="true"] .num{color:var(--lamp)}
+.arena:disabled{opacity:.45;cursor:not-allowed}
+.dropLine{font-size:15px!important;text-align:center}
+.go.star{background:linear-gradient(180deg,#ffd166,var(--lamp));box-shadow:0 0 0 2px #fff3 inset,0 0 18px rgba(255,182,39,.45)}
+.dropCard{text-align:center;justify-items:center}
+.starBtn{width:150px;height:150px;--rar:#3fc463}
+.pcard{display:grid;gap:8px;padding:10px;border-radius:14px;background:var(--panel);border:1px solid var(--edge)}
+.pcard.on{border-color:var(--lamp)}
+.pcard .legend{border-width:1px}
+.copies{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--muted)}
+.copies b{color:var(--text);font-variant-numeric:tabular-nums;letter-spacing:0;font-size:14px}
+.bar{height:8px;border-radius:4px;background:var(--panel-2);overflow:hidden;border:1px solid var(--edge)}
+.bar i{display:block;height:100%;background:var(--lamp)}
+.attrs{display:grid;gap:5px}
+.arow{display:grid;grid-template-columns:1fr auto 72px;gap:8px;align-items:center}
+.an{font-size:13px;font-weight:700;letter-spacing:.08em}
+.pips{display:flex;gap:3px}
+.pips i{width:10px;height:10px;border-radius:2px;background:var(--panel-2);border:1px solid var(--edge)}
+.pips i.f{background:var(--lamp);border-color:var(--lamp)}
+.upBtn{padding:5px 0;border-radius:7px;background:var(--lamp);color:var(--lamp-ink);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
+.upBtn:disabled{background:var(--panel-2);color:var(--muted);cursor:not-allowed}
+.eqBtn{padding:7px;font-size:16px}
+.starBtn svg{width:100%;height:100%;overflow:visible}
+.starBtn path{fill:var(--rar);stroke:#fff;stroke-width:2.5;stroke-linejoin:round;filter:drop-shadow(0 0 12px var(--rar));transition:fill .25s}
+.starBtn.bump svg{animation:bump .32s ease-out}
+@keyframes bump{0%{transform:scale(1) rotate(0)}40%{transform:scale(1.14) rotate(-8deg)}100%{transform:scale(1) rotate(0)}}
+@media (prefers-reduced-motion:reduce){.starBtn.bump svg{animation:none}}
+.dropRar{font-family:var(--f-display);font-weight:700;font-size:40px;line-height:.9;letter-spacing:.04em;color:var(--rar,#8c9db4)}
+.dropHint{font-size:15px!important}
+.reward{font-family:var(--f-display);font-size:34px;line-height:.9;color:var(--lamp)}
+.legend{display:grid;grid-template-columns:52px 1fr;gap:10px;align-items:center;text-align:left;width:100%;box-sizing:border-box;
+  padding:10px;border-radius:12px;background:var(--panel-2);border:2px solid var(--lamp)}
+.legend .jn{font-family:var(--f-display);font-size:44px;line-height:.8;padding-top:6px;color:var(--lamp);text-align:center}
+.legend .ln{font-weight:700;font-size:19px;line-height:1.05}
+.legend .ls{font-size:14px;color:var(--muted);letter-spacing:.06em}
+.legend .ld{font-size:14px;color:var(--text);margin-top:2px}
+.legend.off{border-color:var(--edge);opacity:.5}
+.legend.on{box-shadow:0 0 0 2px var(--lamp) inset}
+.legend .eq{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--lamp-ink);background:var(--lamp);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.slot{padding:8px 4px;border-radius:9px;background:var(--panel-2);border:1px dashed var(--edge);text-align:center;min-width:0}
+.slot.full{border:1px solid var(--lamp)}
+.slot .sl{display:block;font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--muted)}
+.slot .sn{display:block;font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cards{display:grid;gap:10px}
+.deckCard{max-width:380px}
+.vfield{display:grid;gap:6px}
+.vfield b{color:var(--text);font-variant-numeric:tabular-nums}
+.vfield select{font:inherit;font-size:16px;padding:8px;border-radius:8px;background:var(--panel-2);color:var(--text);border:1px solid var(--edge);max-width:100%}
+.vfield input[type=range]{width:100%;accent-color:var(--lamp)}
+.passCard{max-width:380px}
+.ptrack{display:grid;gap:6px;max-height:48vh;overflow:auto;padding-right:2px}
+.prow{display:grid;grid-template-columns:40px 1fr 86px;gap:10px;align-items:center;padding:7px 8px;border-radius:10px;background:var(--panel-2);border:1px solid var(--edge)}
+.prow .tn{font-family:var(--f-display);font-size:28px;line-height:.8;padding-top:4px;text-align:center;color:var(--muted)}
+.prow .rw{font-weight:700;font-size:16px;line-height:1.1}
+.prow .rs{display:block;font-weight:500;font-size:13px;color:var(--muted)}
+.prow.ready{border-color:var(--lamp)}
+.prow.ready .tn{color:var(--lamp)}
+.prow.big .rw{color:var(--lamp)}
+.prow.done{opacity:.5}
+.claim{padding:7px 0;border-radius:8px;background:var(--lamp);color:var(--lamp-ink);font-weight:700;font-size:15px}
+.claim:disabled{background:none;color:var(--muted);font-weight:600;font-size:13px;cursor:default}
+.quests{display:grid;gap:6px;padding:10px;border-radius:12px;background:var(--panel-2);border:1px solid var(--edge)}
+.qhead{display:flex;justify-content:space-between;align-items:baseline}
+.qreset{font-size:12px;color:var(--muted)}
+#questList,#questList2{display:grid;gap:7px}
+.q{display:grid;grid-template-columns:1fr auto;gap:3px 10px;align-items:center}
+.q .qt{font-weight:700;font-size:15px;line-height:1.15}
+.q .qr{font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--lamp);text-align:right;white-space:nowrap}
+.q .qbar{grid-column:1;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.q .qbtn{grid-column:2;grid-row:2}
+.q .claim{padding:4px 10px;font-size:13px}
+.q.done{opacity:.45}
+.friendBtn{border-color:var(--home)}
+.who{display:flex;align-items:baseline;gap:6px;justify-self:start;padding:4px 10px;border-radius:999px;background:var(--panel-2);border:1px solid var(--edge);font-size:15px;max-width:100%}
+.who span{color:var(--muted)}
+.who b{color:var(--lamp);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.who i{font-style:normal;color:var(--muted);font-size:13px;text-decoration:underline}
+.profList{display:grid;gap:6px}
+.prof{display:grid;grid-template-columns:1fr auto;gap:6px}
+.profPick{display:grid;text-align:left;padding:8px 12px;border-radius:10px;background:var(--panel-2);border:1px solid var(--edge);min-width:0}
+.profPick b{font-size:19px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.profPick span{font-size:13px;color:var(--muted)}
+.prof.cur .profPick{border-color:var(--lamp)}
+.profDel{padding:0 10px;border-radius:10px;font-size:13px;color:var(--muted);border:1px solid var(--edge)}
+.profDel.armed{background:var(--away);color:#fff;border-color:var(--away)}
+.profEmpty{text-align:center}
+.joinRow input#newName{font:600 18px var(--f-ui);letter-spacing:.02em;text-transform:none;text-align:left}
+.codeBox{display:grid;justify-items:center;gap:4px;padding:12px;border-radius:12px;background:var(--panel-2);border:1px solid var(--edge);text-align:center}
+.codeBox b{font-family:var(--f-display);font-size:58px;line-height:.85;padding-top:8px;letter-spacing:.12em;color:var(--lamp)}
+.codeBox span:last-child{color:var(--muted);font-size:15px}
+.joinRow{display:grid;grid-template-columns:1fr auto;gap:8px}
+.joinRow input{font:600 24px var(--f-display);letter-spacing:.2em;text-transform:uppercase;text-align:center;padding:8px;border-radius:10px;background:var(--panel-2);color:var(--text);border:1px solid var(--edge);min-width:0}
+.joinRow input:focus-visible{outline:2px solid var(--lamp)}
+.joinRow .ghost{padding:8px 18px}
+.netMsg{min-height:1.3em;font-size:15px!important;text-align:center}
+.netWait{text-align:center;font-size:15px!important}
+/* emotes: a button on the rink's right edge, a picker beside it, a speech bubble for each side */
+.emBtn{position:absolute;right:calc(8px + env(safe-area-inset-right,0px));top:46%;z-index:12;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(7,10,15,.78);border:1px solid var(--edge)}
+.emBtn svg{width:22px;height:22px}.emBtn path{fill:var(--text)}.emBtn .eye{fill:var(--arena)}
+.emBtn.cool{opacity:.4}
+.emPick{position:absolute;right:calc(58px + env(safe-area-inset-right,0px));top:22%;z-index:13;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;
+  width:min(240px,62%);padding:8px;border-radius:12px;background:rgba(14,20,29,.94);border:1px solid var(--edge);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.emPick button,.emChip{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:9px;background:var(--panel-2);border:1px solid var(--edge);
+  font-weight:700;font-size:15px;line-height:1.1;text-align:left;min-width:0}
+.emPick button .ic,.emChip .ic{font-size:20px;line-height:1;flex:none}
+.emPick button .tx,.emChip .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.emPick kbd{margin-left:auto;font:700 11px var(--f-ui);color:var(--muted)}
+.emBubble{position:absolute;z-index:11;max-width:62%;padding:8px 12px;border-radius:14px;background:#fff;color:#121820;font-weight:700;font-size:17px;line-height:1.15;
+  display:flex;align-items:center;gap:8px;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none;opacity:0;transform:scale(.6);transition:opacity .15s,transform .2s cubic-bezier(.3,1.6,.5,1)}
+.emBubble .ic{font-size:26px;line-height:1}
+.emBubble small{display:block;font-size:11px;font-weight:700;letter-spacing:.1em;color:#5d6b7c;text-transform:uppercase}
+.emBubble.on{opacity:1;transform:scale(1)}
+.emBubble.me{left:10px;bottom:16%;border-bottom-left-radius:4px;transform-origin:left bottom}
+.emBubble.them{right:60px;top:9%;border-top-right-radius:4px;transform-origin:right top}
+@media (prefers-reduced-motion:reduce){.emBubble{transition:opacity .15s}}
+.emGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.emChip.locked{opacity:.4}
+.roadBtn{border-color:var(--lamp)}
+.prow.arena{background:none;border-style:dashed;grid-template-columns:40px 1fr}
+.prow.arena .rw{color:var(--lamp)}
+.prow .tn.tr{font-size:22px}
+.howWrap summary{cursor:pointer;color:var(--muted);font-weight:700;letter-spacing:.1em;font-size:14px;text-transform:uppercase}
+.howWrap[open] summary{margin-bottom:8px}
+#soBar{position:absolute;top:30px;left:50%;transform:translateX(-50%);display:grid;gap:4px;padding:8px 12px;border-radius:10px;
+  background:rgba(7,10,15,.82);border:1px solid var(--edge);pointer-events:none}
+.soRow{display:flex;align-items:center;gap:10px}
+.soName{font-weight:700;font-size:14px;letter-spacing:.14em;width:34px;color:var(--c)}
+.soMarks{display:flex;gap:6px}
+.mk{width:14px;height:14px;border-radius:50%;border:2px solid var(--edge);box-sizing:border-box}
+.mk.g{background:var(--lamp);border-color:var(--lamp)}
+.mk.x{border-color:var(--away);position:relative}
+.mk.x::after{content:"";position:absolute;inset:4px -1px;background:var(--away);transform:rotate(45deg);height:2px;top:4px}
+
+/* thumb pad */
+/* move buttons: one per unlocked arena move */
+.moves{flex:0 0 auto;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px;touch-action:none}
+.mv{display:grid;justify-items:center;gap:0;padding:6px 4px;border-radius:10px;background:var(--panel-2);border:2px solid var(--lamp);touch-action:none;min-width:0}
+.mv b{font-family:var(--f-display);font-weight:600;font-size:clamp(14px,4.4vw,20px);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:.9;padding-top:3px;color:var(--lamp);letter-spacing:.03em}
+.mv span{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.mv.off{opacity:.38;border-color:var(--edge)}
+.mv.ready{background:var(--lamp)}.mv.ready b{color:var(--lamp-ink)}.mv.ready span{color:var(--lamp-ink)}
+.mv.pressed{transform:translateY(2px)}
+@media (hover:hover) and (pointer:fine){.moves{display:none!important}}
+#pad{flex:0 0 auto;height:136px;display:flex;align-items:center;justify-content:space-between;gap:12px;touch-action:none}
+.stick{width:124px;height:124px;border-radius:50%;position:relative;touch-action:none;
+  background:radial-gradient(circle,var(--panel-2) 0 55%,var(--panel) 56%);border:1px solid var(--edge)}
+.stick::after{content:"";position:absolute;inset:30%;border-radius:50%;border:1px dashed var(--edge)}
+#knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;
+  background:#c9d4e2;box-shadow:0 4px 0 #7c8aa0,0 6px 14px rgba(0,0,0,.5);z-index:1}
+.btns{display:flex;align-items:flex-end;gap:14px;height:100%;padding-bottom:8px;box-sizing:border-box}
+.btn{position:relative;border-radius:50%;display:grid;place-items:center;font-family:var(--f-display);font-weight:600;letter-spacing:.04em;touch-action:none;line-height:1;padding-top:4px;box-sizing:border-box}
+.col{display:flex;flex-direction:column;gap:8px;flex:none}
+.btns>.btn{flex:none}
+.btns{flex:none}
+.btn.small{width:58px;height:58px;font-size:17px;background:var(--panel-2);border:2px solid var(--home)}
+.btn.skill{border-color:var(--lamp);color:var(--lamp)}
+.btn.cool{opacity:.45}
+.btn.spin{background:var(--lamp);color:var(--lamp-ink);border-color:#fff}
+.btn.big.bomb{background:#ff7a1a;box-shadow:0 5px 0 #a8460b,0 0 18px rgba(255,122,26,.6)}
+.btn.big{width:98px;height:98px;font-size:28px;background:var(--lamp);color:var(--lamp-ink);box-shadow:0 5px 0 #a8730e}
+.btn.big.bh{font-size:22px;line-height:.85;background:#fff;color:var(--arena);box-shadow:0 5px 0 #8c9db4}
+.btn.big.def{background:var(--away);color:#fff;box-shadow:0 5px 0 #8e1d29}
+.btn.big::before{content:"";position:absolute;inset:-7px;border-radius:50%;
+  background:conic-gradient(#fff calc(var(--c,0) * 1turn),transparent 0);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px))}
+.btn:active,.btn.pressed{transform:translateY(3px)}
+/* the key guide is a fixed size: its labels change as you play, and it must never resize the rink */
+.keys{display:none;flex-direction:column;align-items:center;gap:6px;padding-block:4px 2px;height:92px;box-sizing:border-box;overflow:hidden;flex:0 0 auto}
+.krow{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 12px;max-width:100%}
+.krow span{display:flex;align-items:center;gap:4px}
+.keys em{font-style:normal;font-weight:700;font-size:15px;letter-spacing:.04em;color:var(--text);margin-left:3px;display:inline-block;min-width:6.4em;white-space:nowrap}
+.keys kbd{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 6px;border-radius:6px;background:var(--panel-2);border:1px solid var(--edge);
+  border-bottom-width:3px;font:700 13px var(--f-ui);color:var(--text);box-sizing:border-box}
+.keys kbd.wide{min-width:58px}
+.ktip{margin:0;max-width:62ch;text-align:center;font-size:13px;color:var(--muted);line-height:1.5}
+.ktip kbd{height:20px;min-width:20px;font-size:11px;border-bottom-width:2px}
+/* long usernames never push the score around */
+.team{min-width:0}.tname{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tname::before{display:inline-block;margin-right:6px;vertical-align:1px}.tscore{flex:none}
+.btn{overflow:hidden;white-space:nowrap}
+/* computers with a mouse: keyboard + mouse controls instead of the touch pad */
+@media (hover:hover) and (pointer:fine){#pad{display:none}.keys{display:flex}}
+/* stop phone browsers from zooming the game: no double-tap or pinch zoom on the play screen */
+html{touch-action:manipulation}
+#app{touch-action:none}
+.ov{touch-action:pan-y}
+@media (max-height:560px){#pad{height:110px}.stick{width:100px;height:100px}.btn.big{width:80px;height:80px;font-size:23px}.btn.small{width:46px;height:46px;font-size:15px}.tscore{font-size:34px}#clk{font-size:26px}}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+</style>
+
+<div id="app">
+  <header class="board">
+    <div class="team home" id="bt0"><span class="tname" id="tn0">YOU</span><span class="tscore" id="s0">0</span></div>
+    <div class="clock"><span id="per">1ST</span><span id="clk">2:00</span></div>
+    <div class="team away" id="bt1"><span class="tscore" id="s1">0</span><span class="tname" id="tn1">CPU</span></div>
+    <button id="pauseBtn" aria-label="Pause"><svg viewBox="0 0 14 14"><rect x="2" y="1" width="3.5" height="12" rx="1"/><rect x="8.5" y="1" width="3.5" height="12" rx="1"/></svg></button>
+  </header>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="toast"></div>
+    <div class="emBubble them" id="emThem" aria-live="polite"></div>
+    <div class="emBubble me" id="emMe"></div>
+    <button class="emBtn" id="emBtn" aria-label="Emotes" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-7l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><circle cx="8.5" cy="11" r="1.4" class="eye"/><circle cx="15.5" cy="11" r="1.4" class="eye"/></svg></button>
+    <div class="emPick" id="emPick" hidden></div>
+    <div id="pbp" aria-live="polite"></div>
+    <div id="netBadge" hidden></div>
+    <div id="soBar" hidden>
+      <div class="soRow"><span class="soName home" id="son0">YOU</span><span class="soMarks" id="so0"></span></div>
+      <div class="soRow"><span class="soName away" id="son1">CPU</span><span class="soMarks" id="so1"></span></div>
+    </div>
+
+    <div class="ov" id="menuOv">
+      <div class="card">
+        <h1 class="logo">SLAPSHOT <b>3V3</b></h1>
+        <button class="who" id="whoBtn"><span>Playing as</span> <b id="whoName">-</b> <i>Switch</i></button>
+        <p>3-minute games, 1-minute sudden-death overtime, then a shootout. Every win earns 30 trophies, and trophies unlock tougher arenas. Your first win each day earns a star drop: gold, player cards for upgrades, or a new legend.</p>
+        <div class="quests"><div class="qhead"><span class="eyebrow">Daily quests</span><span class="qreset">New quests at midnight</span></div><div id="questList"></div></div>
+        <div class="trophies"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v2h3v3a4 4 0 0 1-4 4h-.3A5 5 0 0 1 13 14.9V18h3v3H8v-3h3v-3.1A5 5 0 0 1 8.3 12H8a4 4 0 0 1-4-4V5h3V3zm0 4H6v1a2 2 0 0 0 1 1.7V7zm10 0v2.7A2 2 0 0 0 18 8V7h-1z"/></svg><b id="trophyCount">0</b><span>trophies</span>
+          <svg class="coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><text x="12" y="16.5" text-anchor="middle">G</text></svg><b id="goldCount">0</b><span>gold</span></div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">Arena</div>
+          <div class="arenas" id="arenaList"></div>
+        </div>
+        <button class="go" id="playBtn">DROP THE PUCK</button>
+        <button class="ghost friendBtn" id="friendBtn">Play a friend online</button>
+        <button class="ghost" id="deckBtn">Your deck</button>
+        <button class="ghost roadBtn" id="roadBtn">Trophy Road</button>
+        <button class="ghost" id="passBtn">Puck Pass</button>
+        <button class="ghost" id="voiceBtn2">Announcer voice</button>
+        <p class="dropLine" id="dropLine"></p>
+        <details class="howWrap"><summary>How to play</summary>
+        <ul class="how">
+          <li><b>FACEOFF</b>: tap any button the instant the puck drops. Too early and you lose it. Aim the pad to choose where you draw it.</li>
+          <li><b>PAD</b> skate. You always control the skater with the gold ring. On a computer: WASD or arrows, Space shoots, Shift dekes, E passes, Esc pauses.</li>
+          <li><b>SHOOT</b> hold to wind up, let go to fire. Push the pad left or right to pick a corner. Push it toward the net as you let go to go top shelf.</li>
+          <li><b>BREAKAWAY</b>: get past every defender and the goalie comes out to challenge. Deke him and finish.</li>
+          <li><b>PASS</b> goes to the open teammate, or the one you're pointing at. Teammates show their job above them; gold <b>OPEN!</b> means they're in a scoring spot with a clean lane.</li>
+          <li><b>DEKE</b> side-steps and drags the puck across. Point the pad left or right to choose the side. Pokes and checks can't touch you mid-deke.</li>
+          <li><b>ARENA MOVES</b> each get their own button above the pad (keys Z X C V on a computer): Arena 2 <b>SAUCER</b> pass floats over sticks. Arena 3 <b>SPIN</b>-o-rama can't be checked and freezes the goalie. Arena 4 <b>BOMB</b> is a short wind-up into a huge slapshot. Arena 5 <b>MICHIGAN</b> works low beside their net and lights up gold when you're in the spot.</li>
+          <li><b>BACKHAND</b>: tap SHOOT right after a deke, or while skating away from the net, for an instant shot the goalie reads late.</li>
+          <li><b>On defence</b>: <b>POKE</b> reaches out with the stick, <b>CHECK</b> lunges for a body hit, <b>SWITCH</b> changes skaters.</li>
+          <li><b>ICING</b>: clear the puck from your half past their goal line and the faceoff comes back to your zone. <b>OFFSIDE</b>: the puck must cross the blue line before you do.</li>
+          <li><b>EMOTES</b>: tap the speech bubble on the rink's edge (or T, then 1-9). You start with 3 and find more in Epic, Mythic and Legendary star drops.</li>
+          <li><b>SHOOTOUT</b>: three shooters each, then sudden death. One chance per attempt, no rebounds.</li>
+        </ul></details>
+      </div>
+    </div>
+
+    <div class="ov" id="pauseOv" hidden>
+      <div class="card">
+        <div class="result">PAUSED</div>
+        <button class="go" id="resumeBtn">RESUME</button>
+        <div class="row"><button class="ghost" id="soundBtn">Sound: on</button><button class="ghost" id="rolesBtn">Roles: on</button></div>
+        <button class="ghost" id="voiceBtn">Announcer voice</button>
+        <button class="ghost" id="quitBtn">Quit game</button>
+      </div>
+    </div>
+
+    <div class="ov" id="interOv" hidden>
+      <div class="card">
+        <div class="eyebrow" id="interKicker">Intermission</div>
+        <div class="result" id="interTitle">END OF 1ST</div>
+        <div class="final"><span class="h" id="iS0">0</span><i>–</i><span class="a" id="iS1">0</span></div>
+        <div class="stat"><span>Shots on goal</span><span id="iShots">0 – 0</span></div>
+        <button class="go" id="contBtn">NEXT PERIOD</button>
+      </div>
+    </div>
+
+    <div class="ov" id="endOv" hidden>
+      <div class="card">
+        <div class="eyebrow" id="endKicker">Final</div>
+        <div class="result" id="endTitle">YOU WIN</div>
+        <div class="final"><span class="h" id="eS0">0</span><i>–</i><span class="a" id="eS1">0</span></div>
+        <div class="stat"><span>Shots on goal</span><span id="eShots">0 – 0</span></div>
+        <div id="endRewards">
+        <div class="earn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v2h3v3a4 4 0 0 1-4 4h-.3A5 5 0 0 1 13 14.9V18h3v3H8v-3h3v-3.1A5 5 0 0 1 8.3 12H8a4 4 0 0 1-4-4V5h3V3z"/></svg><b id="earnAmt">+30</b><span id="earnTotal">30 total</span></div>
+        <div class="stat"><span>Pucks earned (10 per goal)</span><span id="ePucks">+0</span></div>
+        <div class="unlock" id="unlockMsg" hidden></div>
+        <button class="ghost roadBtn" id="roadBtn2" hidden>Trophy Road</button>
+        <button class="ghost" id="passBtn2" hidden>Puck Pass</button>
+        <button class="go star" id="dropBtn" hidden>OPEN YOUR STAR DROP</button>
+        <div class="quests"><div class="qhead"><span class="eyebrow">Daily quests</span><span class="qreset">New quests at midnight</span></div><div id="questList2"></div></div>
+        </div>
+        <p class="netWait" id="netWait" hidden>Waiting for your friend to start a rematch.</p>
+        <button class="go" id="againBtn">PLAY AGAIN</button>
+        <button class="ghost" id="menuBtn">Arenas</button>
+      </div>
+    </div>
+
+    <div class="ov" id="profOv" hidden>
+      <div class="card">
+        <div class="result" style="font-size:44px">PLAYERS</div>
+        <p id="profIntro">Pick your player or make a new one.</p>
+        <div class="profList" id="profList"></div>
+        <div class="joinRow"><input id="newName" maxlength="16" placeholder="New username" autocomplete="off" spellcheck="false" aria-label="New username"><button class="ghost" id="newBtn">Create</button></div>
+        <p class="netMsg" id="profMsg" role="status"></p>
+        <button class="ghost" id="profClose">Back</button>
+      </div>
+    </div>
+
+    <div class="ov" id="netOv" hidden>
+      <div class="card">
+        <div class="result" style="font-size:44px">PLAY A FRIEND</div>
+        <p>1v1 online. One of you hosts and shares the code, the other joins with it. You each bring your own deck, upgrades and unlocked moves. Friend games don't give trophies, pucks or quest progress.</p>
+        <button class="go" id="hostBtn" style="font-size:24px">HOST A GAME</button>
+        <div class="codeBox" id="codeBox" hidden><span class="eyebrow">Your game code</span><b id="myCode">-----</b><span id="hostMsg">Waiting for your friend to join...</span>
+          <div class="row" style="width:100%"><button class="ghost" id="copyCode" hidden>Copy code</button><button class="ghost" id="stopHost" hidden>Stop hosting</button></div></div>
+        <div class="joinRow"><input id="joinCode" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Game code"><button class="ghost" id="joinBtn">Join</button></div>
+        <p class="netMsg" id="netMsg" role="status"></p>
+        <button class="ghost" id="netCancel">Back</button>
+      </div>
+    </div>
+
+    <div class="ov" id="roadOv" hidden>
+      <div class="card passCard">
+        <div class="result" style="font-size:44px">TROPHY ROAD</div>
+        <p>Every win is 30 trophies. Reach a milestone to claim its prize. New arenas open along the way.</p>
+        <div class="copies"><span id="roadNextLbl">NEXT PRIZE</span><span class="bar"><i id="roadBar" style="width:0%"></i></span><b id="roadTr">0</b></div>
+        <div class="ptrack" id="roadTrack"></div>
+        <button class="go" id="roadDone">DONE</button>
+      </div>
+    </div>
+
+    <div class="ov" id="passOv" hidden>
+      <div class="card passCard">
+        <div class="result" style="font-size:44px">PUCK PASS</div>
+        <p>Every goal you score earns 10 pucks. Fill a tier to unlock its reward. Every tier is free.</p>
+        <div class="copies"><span id="passTierLbl">TIER 1</span><span class="bar"><i id="passBar" style="width:0%"></i></span><b id="passPk">0/30</b></div>
+        <div class="ptrack" id="passTrack"></div>
+        <button class="go" id="passDone">DONE</button>
+      </div>
+    </div>
+
+    <div class="ov" id="dropOv" hidden>
+      <div class="card dropCard">
+        <div class="eyebrow">Daily star drop</div>
+        <button class="starBtn" id="starBtn" aria-label="Tap the star drop"><svg viewBox="0 0 100 100"><path d="M50 5 61 38h35L68 59l11 34-29-21-29 21 11-34L4 38h35z"/></svg></button>
+        <div class="dropRar" id="dropRar">RARE</div>
+        <p class="dropHint" id="dropHint">3 chances. Every tap can upgrade it.</p>
+        <div id="dropReward" hidden></div>
+        <button class="go" id="dropDone" hidden>COLLECT</button>
+      </div>
+    </div>
+
+    <div class="ov" id="voiceOv" hidden>
+      <div class="card">
+        <div class="result" style="font-size:44px">ANNOUNCER</div>
+        <p>Pick the voice closest to yours, then tune pitch and speed until it sounds right. Tap Test to hear it.</p>
+        <div class="row"><button class="ghost" id="vOn">Announcer: on</button><button class="ghost" id="feedBtn">Text feed: on</button></div>
+        <label class="vfield"><span class="eyebrow">Voice</span><select id="vSel"></select></label>
+        <label class="vfield"><span class="eyebrow">Pitch <b id="vPitchV">1.0</b></span><input type="range" id="vPitch" min="0.5" max="1.8" step="0.05" value="1"></label>
+        <label class="vfield"><span class="eyebrow">Speed <b id="vRateV">1.15</b></span><input type="range" id="vRate" min="0.7" max="1.7" step="0.05" value="1.15"></label>
+        <div class="row"><button class="ghost" id="vTest">Test</button><button class="go" id="vDone" style="font-size:22px">DONE</button></div>
+      </div>
+    </div>
+
+    <div class="ov" id="deckOv" hidden>
+      <div class="card deckCard">
+        <div class="result" style="font-size:44px">YOUR DECK</div>
+        <p>Players in your deck take the ice with their boosts. Spend 10 player cards plus gold to raise Speed, Deking, Defensive or Acceleration a level (+6% each, up to 5).</p>
+        <div class="slots" id="slots"></div>
+        <div class="eyebrow">Emotes · <span id="emCount">0</span></div>
+        <div class="emGrid" id="emGrid"></div>
+        <div class="eyebrow">Legends · <span id="ownCount">0 / 8</span></div>
+        <div class="cards" id="cardList"></div>
+        <button class="go" id="deckDone">DONE</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="moves" id="moves" hidden>
+    <button class="mv" id="mvSaucer" data-mv="2" hidden><b>SAUCER</b><span>pass</span></button>
+    <button class="mv" id="mvSpin" data-mv="3" hidden><b>SPIN</b><span>o-rama</span></button>
+    <button class="mv" id="mvBomb" data-mv="4" hidden><b>BOMB</b><span>shot</span></button>
+    <button class="mv" id="mvMich" data-mv="5" hidden><b>MICHIGAN</b><span>near net</span></button>
+  </div>
+  <div id="pad">
+    <div class="stick" id="stick" aria-label="Skate pad"><div id="knob"></div></div>
+    <div class="btns">
+      <div class="col">
+        <button class="btn small skill" id="bSkill">DEKE</button>
+        <button class="btn small" id="bPass">PASS</button>
+      </div>
+      <button class="btn big" id="bShoot">SHOOT</button>
+    </div>
+  </div>
+  <div class="keys" id="keys" aria-label="Keyboard controls">
+    <div class="krow">
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><em>skate</em></span>
+      <span><kbd class="wide">Space</kbd><em id="kShoot">shoot</em></span>
+      <span><kbd class="wide">Shift</kbd><em id="kSkill">deke</em></span>
+      <span><kbd>E</kbd><em id="kPass">pass</em></span>
+      <span id="kmv2" hidden><kbd>Z</kbd><em>saucer</em></span>
+      <span id="kmv3" hidden><kbd>X</kbd><em>spin</em></span>
+      <span id="kmv4" hidden><kbd>C</kbd><em>bomb</em></span>
+      <span id="kmv5" hidden><kbd>V</kbd><em>Michigan</em></span>
+      <span><kbd>T</kbd><em>emote</em></span>
+      <span><kbd>Esc</kbd><em>pause</em></span>
+    </div>
+    <p class="ktip">Hold Space to wind up. Hold <kbd>W</kbd> as you let go to go top shelf. Mouse works too: left click shoots, right click passes. <kbd>Enter</kbd> presses the big button on any menu.</p>
+  </div>
+</div>
+
+<script>
+(()=>{
+'use strict';
+const $=id=>document.getElementById(id);
+const W=100,H=200,CR=18,GT=11,GB=189,NH=4,ND=4,PR=.8,SR=2,GR=1.9;
+const PERIOD=180,OT_LEN=60,PNAMES=['REG','OT','SO'];
+const TROPHIES_PER_GAME=30;
+/* Arenas unlock with trophies. lvl 0..4 sets how good the CPU is. */
+const ARENAS=[
+  {name:'Frozen Pond',sub:'Outdoor shinny',need:0,mark:'POND',kick:'#9cc3df',glow:'rgba(140,190,255,.16)',ice:['#dfeaf2','#eef4f8']},
+  {name:'Community Rink',sub:'Saturday morning ice',need:120,mark:'RINK',kick:'#e8b23a',glow:'rgba(90,130,200,.14)',ice:['#e6eff4','#f1f6f9']},
+  {name:'Junior Barn',sub:'Loud crowd, tight boards',need:240,mark:'BARN',kick:'#c8462f',glow:'rgba(200,90,60,.14)',ice:['#e9eef1','#f4f6f8']},
+  {name:'Pro Centre',sub:'Big-league speed',need:400,mark:'PRO',kick:'#2f6bff',glow:'rgba(60,110,255,.18)',ice:['#ecf2f6','#f7fafc']},
+  {name:'The Cup Dome',sub:'Final boss arena',need:600,mark:'CUP',kick:'#ffb627',glow:'rgba(255,182,39,.16)',ice:['#eef3f6','#fbfcfd']}
+];
+const lerp5=(a,i)=>a[i];
+/* CPU players use the same attribute levels as your cards (+6% per level, every attribute).
+   Arena 1: level 0 (identical to an unupgraded player). Arena 2: level 3. Then 5, 7, 10.
+   shoot = how often the CPU looks to shoot/deke, fo = CPU faceoff reaction (s). */
+const CPU_LV=[0,3,5,7,10];
+function arenaD(i){const L=CPU_LV[i];return{
+  lvl:L,greact:.11*Math.pow(.94,L),glat:15.5*(1+.06*L),gctl:Math.min(.95,.65*(1+.06*L)),
+  shoot:lerp5([.65,1,1.1,1.2,1.3],i),fo:lerp5([.4,.28,.24,.2,.17],i),
+  pokeMul:lerp5([.55,.9,1,1.1,1.2],i), // how well CPU defenders time their stick checks
+  // Arena 1 is the learning rink: the CPU goalie is slower to read shots and gives up more rebounds
+  // Arena 1 is the learning rink: a slow, leaky CPU goalie, and sloppy skaters who ice it, miss passes and fumble catches
+  ...(i===0?{greact:.15,glat:13,gctl:.45}:{}),
+  slop:[1,.45,0,0,0][i]}} // how sloppy the CPU is: Arena 1 very, Arena 2 a bit, then clean
+let arenaIdx=0,trophies=0;
+// g* = goalie: react (s before tracking a shot), lat (lateral speed), ctl (rebound control). fo = CPU faceoff reaction (s)
+const MY_GOALIE={greact:.11,glat:15.5,gctl:.65};
+let myGoalie=MY_GOALIE;
+const gStats=g=>g.team?(netOn()&&guestDeck?guestDeck.g:D):myGoalie;
+
+/* ---------- legend cards ----------
+   Fictional legends from the daily pack. Equip them in your deck: slot F1 = your centre,
+   F2 = your winger, D = your defenceman, G = your goalie. Rename them freely. */
+const CARDS=[
+  {id:'bell',name:'Connor Beck',num:25,pos:'D',style:'Starter',boost:{},desc:'Your first player. Steady on the blue line, built to be upgraded.',starter:true},
+  {id:'laroque',name:'Jet Laroque',num:9,pos:'F',style:'Speedster',boost:{spd:1.12,shot:1.05},desc:'+12% speed, +5% shot power'},
+  {id:'halvorsen',name:'Viktor Halvorsen',num:71,pos:'F',style:'Sniper',boost:{shot:1.15,acc:1.25},desc:'+15% shot power, +25% accuracy'},
+  {id:'ruiz',name:'Mateo Ruiz',num:19,pos:'F',style:'Dangler',boost:{hands:1.35,acc:1.1},desc:'Faster dekes, softer hands, +10% accuracy'},
+  {id:'strand',name:'Callum Strand',num:8,pos:'F',style:'Two-way',boost:{spd:1.06,shot:1.06,acc:1.06,hands:1.06,def:1.06},desc:'+6% to everything'},
+  {id:'okafor',name:'Ben Okafor',num:44,pos:'D',style:'Shutdown',boost:{def:1.3,shot:1.1},desc:'+30% pokes and hits, +10% shot power'},
+  {id:'rautio',name:'Nico Rautio',num:27,pos:'D',style:'Puck-mover',boost:{spd:1.08,def:1.15,hands:1.15},desc:'+8% speed, better pokes and hands'},
+  {id:'kaskov',name:'Dmitri Kaskov',num:35,pos:'G',style:'Brick Wall',boost:{greact:.78,glat:1.1},desc:'Reads shots 22% faster, +10% side-to-side'},
+  {id:'hirvela',name:'Sami Hirvelä',num:1,pos:'G',style:'Rebound King',boost:{glat:1.2,gctl:1.25},desc:'+20% side-to-side, kills rebounds'}
+];
+const SLOTS=[{k:'F1',pos:'F',label:'Centre'},{k:'F2',pos:'F',label:'Wing'},{k:'D',pos:'D',label:'Defence'},{k:'G',pos:'G',label:'Goalie'}];
+let owned=['bell'],deck={F1:null,F2:null,D:'bell',G:null},lastDropDay='',dropPending=false,gold=100;
+const cardById=id=>CARDS.find(c=>c.id===id);
+/* Upgrades: each attribute has 5 levels. One level = 10 player cards of that player + gold. +6% per level. */
+// upgradeable skater attributes. DEKING = faster deke recharge, bigger side-step, cleaner pass catching.
+// ACCELERATION = how quickly you reach top speed. Shot power/accuracy come only from a legend's built-in boost.
+const SK_ATTRS=[{k:'spd',n:'SPEED'},{k:'hands',n:'DEKING'},{k:'def',n:'DEFENSIVE'},{k:'accel',n:'ACCELERATION'}];
+const G_ATTRS=[{k:'greact',n:'REFLEXES'},{k:'glat',n:'SIDE TO SIDE'},{k:'gctl',n:'REBOUNDS'}];
+const MAX_LV=5,CARDS_PER_UP=10,PER_LV=.06;
+const upCost=lv=>100*(lv+1); // gold for the next level
+let prog={bell:{copies:10,lv:{}}}; // starter comes with enough cards for a first upgrade
+const progOf=id=>prog[id]||(prog[id]={copies:0,lv:{}});
+const lvOf=(id,k)=>progOf(id).lv[k]||0;
+const attrsOf=c=>c.pos==='G'?G_ATTRS:SK_ATTRS;
+/* Friend games are an even fight: every skater and goalie on both teams plays fully upgraded
+   (max level in everything), on top of each legend's own boost. */
+function maxedAttr(c){const b=c?c.boost:{},m=1+PER_LV*MAX_LV,a={};
+  for(const k of['spd','hands','def','accel'])a[k]=(b[k]||1)*m;for(const k of['shot','acc'])a[k]=b[k]||1;return a}
+function maxedGoalie(c){const b=c?c.boost:{};
+  return{greact:MY_GOALIE.greact*(b.greact||1)*Math.pow(1-PER_LV,MAX_LV),glat:MY_GOALIE.glat*(b.glat||1)*(1+PER_LV*MAX_LV),gctl:Math.min(.95,MY_GOALIE.gctl*(b.gctl||1)*(1+PER_LV*MAX_LV))}}
+function applyDeck(){
+  // friend games: each player brings their own upgrades and legends (nothing is boosted)
+  // CPU skaters: every attribute at the arena's level
+  const cpuA=1+PER_LV*(D.lvl||0);
+  for(const s of skaters)if(s.team===1){
+    const gp=netOn()&&guestDeck?guestDeck.sk[s.i]:null; // online friend brings their own deck
+    if(gp){s.attr=Object.assign({spd:1,shot:1,acc:1,hands:1,def:1,accel:1},gp.attr);s.card={id:'net'+s.i,name:gp.name};s.num=gp.num}
+    else{s.attr={spd:cpuA,shot:1,acc:1,hands:cpuA,def:cpuA,accel:cpuA};s.card=null}}
+  {const g1=goalies.find(g=>g.team===1);if(g1)g1.card=netOn()&&guestDeck&&guestDeck.gname?{id:'netg',name:guestDeck.gname}:null}
+  const mine=skaters.filter(s=>s.team===0),slotOf=['F1','F2','D'];
+  for(const s of mine){
+    const c=cardById(deck[slotOf[s.i]]);s.card=c||null;
+    s.attr={spd:1,shot:1,acc:1,hands:1,def:1,accel:1};
+    if(c){for(const k in s.attr)s.attr[k]=(c.boost[k]||1)*(1+PER_LV*lvOf(c.id,k));s.num=c.num}
+  }
+  const gc=cardById(deck.G);myGoalie=Object.assign({},MY_GOALIE);
+  if(gc){
+    myGoalie.greact=MY_GOALIE.greact*(gc.boost.greact||1)*Math.pow(1-PER_LV,lvOf(gc.id,'greact'));
+    myGoalie.glat=MY_GOALIE.glat*(gc.boost.glat||1)*(1+PER_LV*lvOf(gc.id,'glat'));
+    myGoalie.gctl=Math.min(.95,MY_GOALIE.gctl*(gc.boost.gctl||1)*(1+PER_LV*lvOf(gc.id,'gctl')));
+  }
+  const g=goalies.find(g=>g.team===0);if(g)g.card=gc||null;
+}
+function upgrade(id,k){
+  const c=cardById(id),p=progOf(id),lv=p.lv[k]||0;
+  if(!c||!owned.includes(id)||lv>=MAX_LV||p.copies<CARDS_PER_UP||gold<upCost(lv))return;
+  p.copies-=CARDS_PER_UP;gold-=upCost(lv);p.lv[k]=lv+1;
+  audio();tone(660,.12,'triangle',.06,990);tone(990,.18,'triangle',.05,1320);
+  saveProgress();applyDeck();renderDeck();renderArenas();
+}
+let fo={t:0,dropAt:1,dropped:true,early:false,cpuT:.3,done:true};
+let D=arenaD(0);
+let roster=[],rosterG=[],so=null,soWinner=-1,interNext=null;
+const goalieOf=t=>rosterG.find(g=>g.team===t);
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v,hyp=Math.hypot,dist=(a,b)=>hyp(a.x-b.x,a.y-b.y),rnd=(a,b)=>a+Math.random()*(b-a);
+const atkY=t=>t?GB:GT,defY=t=>t?GT:GB,dirOf=t=>t?1:-1;
+const NETS=[{def:1,x0:50-NH,x1:50+NH,y0:GT-ND,y1:GT,front:GT,fs:1},{def:0,x0:50-NH,x1:50+NH,y0:GB,y1:GB+ND,front:GB,fs:-1}];
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COL={home:css('--home')||'#2f6bff',away:css('--away')||'#e5394a',lamp:css('--lamp')||'#ffb627',arena:css('--arena')||'#0b1017',
+  homeD:'#163a9c',awayD:'#8e1d29',red:'#d3303c',blue:'#2a5fd0',ice:'#eaf2f6'};
+
+let skaters=[],goalies=[],all=[],puck=null,human=null;
+/* Online 1v1: the host runs the whole game. `human`, `input`, `charging`, `charge` and `switchLock`
+   always describe the player in context (pctx). withP(1, fn) runs fn as the online friend (team 1). */
+let netRole=null,netConn=null,netPeer=null,netEv=[],netMute=false,guestDeck=null,guestSpin=false,myT=0,flipView=false,savedArena=0;
+let pctx=0;
+const slot=[{human:null,input:{x:0,y:0},charging:false,charge:0,switchLock:0},{human:null,input:{x:0,y:0},charging:false,charge:0,switchLock:0}];
+const netOn=()=>netRole==='host';
+function saveSlot(o){o.human=human;o.input={x:input.x,y:input.y};o.charging=charging;o.charge=charge;o.switchLock=switchLock}
+function loadSlot(o){human=o.human;input.x=o.input.x;input.y=o.input.y;charging=o.charging;charge=o.charge;switchLock=o.switchLock}
+function withP(t,fn){if(t===pctx)return fn();const a=slot[pctx],b=slot[t],pc=pctx;saveSlot(a);loadSlot(b);pctx=t;try{return fn()}finally{saveSlot(b);loadSlot(a);pctx=pc}}
+const getHuman=t=>t===pctx?human:slot[t].human;
+function setHuman(t,s){if(t===pctx)human=s;else slot[t].human=s}
+function setSL(t,v){if(t===pctx)switchLock=v;else slot[t].switchLock=v}
+function stopCharge(t){if(t===pctx)charging=false;else slot[t].charging=false}
+const inputOf=t=>t===pctx?input:slot[t].input;
+const isHuman=s=>!!s&&(s===getHuman(0)||(netOn()&&s===getHuman(1)));
+let score=[0,0],shots=[0,0],period=1,clock=PERIOD,phase='menu',phaseT=0,pausedFrom='play';
+let switchLock=0,charging=false,charge=0,camY=100,shake=0,flash=0,time=0,lampNet=-1,breakaway=null,stopDot=null;
+const joy={x:0,y:0,id:null},keys={},input={x:0,y:0};
+
+/* ---------- audio ---------- */
+let ac=null,soundOn=true,lastBoard=0;
+function audio(){if(!ac){try{ac=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}}if(ac&&ac.state==='suspended')ac.resume().catch(()=>{})}
+function tone(f,d,type,v,slide){if(!ac||!soundOn)return;const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();o.type=type||'square';o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);g.gain.setValueAtTime(v||.05,t);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g).connect(ac.destination);o.start(t);o.stop(t+d+.03)}
+function noise(d,v,fc){if(!ac||!soundOn)return;const t=ac.currentTime,n=Math.floor(ac.sampleRate*d),b=ac.createBuffer(1,n,ac.sampleRate),a=b.getChannelData(0);for(let i=0;i<n;i++)a[i]=(Math.random()*2-1)*(1-i/n);const s=ac.createBufferSource();s.buffer=b;const f=ac.createBiquadFilter();f.type='bandpass';f.frequency.value=fc;const g=ac.createGain();g.gain.value=v;s.connect(f).connect(g).connect(ac.destination);s.start(t)}
+function horn(){if(netRole==='host')netEv.push(['h']);if(!ac||!soundOn)return;const t=ac.currentTime,g=ac.createGain(),lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=900;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.09,t+.05);g.gain.setValueAtTime(.09,t+1.3);g.gain.linearRampToValueAtTime(0,t+1.7);lp.connect(g).connect(ac.destination);[233,277,349].forEach(f=>{const o=ac.createOscillator();o.type='sawtooth';o.frequency.value=f;o.connect(lp);o.start(t);o.stop(t+1.75)})}
+function sfx(k){if(netRole==='host')netEv.push(['s',k]);switch(k){
+  case'shot':noise(.09,.5,1800);tone(160,.08,'square',.04,80);break;
+  case'pass':noise(.05,.25,2400);break;
+  case'poke':tone(520,.05,'triangle',.06,300);break;
+  case'hit':noise(.14,.6,300);tone(90,.12,'sine',.12,50);break;
+  case'save':tone(140,.1,'sine',.14,70);noise(.06,.3,900);break;
+  case'board':noise(.1,.35,500);break;
+  case'whistle':tone(2600,.25,'sine',.05,2500);break;
+  case'buzzer':tone(180,.9,'square',.05,170);break;}}
+
+/* ---------- play-by-play ----------
+   Every notable moment writes a line to the feed; the big ones are also read aloud
+   by the browser's voice (toggle in the pause menu). Priority: 1 = feed only, 2 = spoken if
+   the announcer isn't mid-sentence, 3 = cuts in (goals, breakaways). */
+const DEFAULT_NAMES=[['Tremblay','Kowal','Lindgren'],['Morrow','Sato','Varga']],DEFAULT_G=['Ouellet','Brandt'];
+let voiceOn=true,lastPbp=0,quietPass=false,vName='',vPitch=1,vRate=1.15;
+try{voiceOn=localStorage.getItem('slapshot-voice')!=='off';
+  const v=JSON.parse(localStorage.getItem('slapshot-voicecfg')||'null');if(v){vName=v.name||'';vPitch=+v.pitch||1;vRate=+v.rate||1.15}}catch(_){}
+function saveVoice(){try{localStorage.setItem('slapshot-voice',voiceOn?'on':'off');localStorage.setItem('slapshot-voicecfg',JSON.stringify({name:vName,pitch:vPitch,rate:vRate}))}catch(_){}}
+const allVoices=()=>{try{return(speechSynthesis.getVoices()||[]).filter(v=>/^en/i.test(v.lang))}catch(_){return[]}};
+function pickVoice(){const vs=allVoices();return vs.find(v=>v.name===vName)||vs.find(v=>/en-CA/i.test(v.lang))||vs.find(v=>v.default)||vs[0]||null}
+function say(text,pri){
+  const u=new SpeechSynthesisUtterance(text),v=pickVoice();if(v){u.voice=v;u.lang=v.lang}
+  u.rate=vRate;u.pitch=Math.min(2,vPitch*(pri>=3?1.08:1));u.volume=.95;speechSynthesis.speak(u);
+}
+function N(s){if(!s)return'';if(s.card)return s.card.name.split(' ').slice(-1)[0];return s.goalie?DEFAULT_G[s.team]:DEFAULT_NAMES[s.team][s.i]}
+const pick1=a=>a[Math.floor(Math.random()*a.length)];
+function pbp(text,pri){
+  pri=pri||1;
+  if(pri===1&&time-lastPbp<1.2)return; // don't flood the feed with routine plays
+  lastPbp=time;
+  if(netRole==='host'){netEv.push(['p',text,pri]);text=text.replace(/The CPU/g,'Your friend').replace(/the CPU/g,'your friend')}
+  const feed=$('pbp');if(feed){const el=document.createElement('div');el.className='pl p'+pri;el.textContent=text;feed.prepend(el);while(feed.children.length>3)feed.lastChild.remove()}
+  if(!voiceOn||pri<2||!soundOn||!('speechSynthesis' in window))return;
+  try{
+    const ss=window.speechSynthesis;
+    if(pri>=3)ss.cancel();else if(ss.speaking||ss.pending)return;
+    say(text,pri);
+  }catch(_){}
+}
+function clearPbp(){const f=$('pbp');if(f)f.innerHTML='';try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}}
+
+/* ---------- entities ---------- */
+function mk(team,i,num,goalie){return{team,i,num,goalie,x:50,y:100,vx:0,vy:0,dvx:0,dvy:0,fx:0,fy:team?1:-1,cd:0,poke:0,hold:0,react:0,deke:0,dekeCd:0,dekeSide:1,pokeT:0,lungeT:0,chk:0,bhWin:0,attr:{spd:1,shot:1,acc:1,hands:1,def:1,accel:1},card:null}}
+function setup(){
+  skaters=[];goalies=[];
+  const nums=[[91,17,4],[8,29,77]];
+  for(let t=0;t<2;t++){for(let i=0;i<3;i++)skaters.push(mk(t,i,nums[t][i],false));goalies.push(mk(t,0,t?35:30,true))}
+  all=[...skaters,...goalies];roster=skaters.slice();rosterG=goalies.slice();
+  puck={x:50,y:100,vx:0,vy:0,owner:null,lastTeam:-1,shot:false,ice:-1,trail:[]};
+  applyDeck();
+}
+// dot = [x,y] faceoff spot; centre ice by default, a zone dot after the goalie freezes it
+function faceoff(silent,dot){
+  const fx=dot?dot[0]:50,fy=dot?dot[1]:100;
+  const P=[[0,3.2],[-21,11],[21,11]];
+  for(const s of skaters){const p=P[s.i],sg=s.team?-1:1;s.x=clamp(fx+p[0],6,94);s.y=clamp(fy+p[1]*sg,6,194);s.vx=s.vy=s.dvx=s.dvy=0;s.fx=0;s.fy=s.team?1:-1;s.cd=0;s.poke=0;s.deke=0;s.bhWin=0}
+  for(const g of goalies){g.x=50;g.y=g.team?GT+2.2:GB-2.2;g.vx=g.vy=g.dvx=g.dvy=0;g.fx=0;g.fy=g.team?1:-1;g.hold=0;g.react=0}
+  Object.assign(puck,{x:fx,y:fy,vx:0,vy:0,owner:null,lastTeam:-1,shot:false,high:false,bh:false,passTo:null,lastSk:null,ice:-1,trail:[]});
+  human=skaters[0];charging=false;charge=0;lampNet=-1;breakaway=null;
+  if(netOn()){slot[1].human=skaters.find(s=>s.team===1&&s.i===0);slot[1].charging=false;slot[1].charge=0}
+  phase='faceoff';phaseT=1.1;
+  // the linesman drops it after a short, unpredictable wait; react to the drop to win the draw
+  fo={t:0,dropAt:rnd(.9,1.7),dropped:false,early:false,done:false,dot:[fx,fy],cpuT:Math.max(.08,D.fo+rnd(-.07,.07))};
+  for(const g of goalies)g.fly=0;
+  if(!silent)toast('WAIT FOR THE DROP','small',900);
+}
+const nearestSk=(t,p)=>{let b=null,bd=1e9;for(const s of skaters)if(s.team===t){const d=dist(s,p);if(d<bd){bd=d;b=s}}return b};
+const maxSp=s=>{
+  let m=30*s.attr.spd*(s.deke>0?1.2:1);
+  if(breakaway&&breakaway.s===s)m*=1.08;else if(puck.owner===s)m*=.9;
+  if(breakaway&&!s.goalie&&s.team!==breakaway.s.team)m*=.9; // chasers can't quite close the gap
+  return m;
+};
+// Breakaway: carrier past the defence with no opposing skater level or ahead of them
+function detectBreakaway(){
+  const o=puck.owner;
+  if(!o||o.goalie){breakaway=null;return}
+  if(breakaway&&breakaway.s===o)return;
+  breakaway=null;
+  const dir=dirOf(o.team);
+  if(o.team?o.y<75:o.y>125)return;
+  for(const p of skaters)if(p.team!==o.team&&(p.y-o.y)*dir>-1)return;
+  breakaway={s:o};toast(o.team===0?'BREAKAWAY!':'CPU BREAKAWAY','small',900);tone(660,.12,'sine',.05,990);
+  pbp(pick1([`${N(o)} is in alone!`,`Breakaway, ${N(o)}!`,`${N(o)} gets behind the defence!`]),3);
+}
+const wantsHigh=()=>input.y*dirOf(pctx)>.45; // pad pushed toward the net
+function steer(s,tx,ty,mul){const dx=tx-s.x,dy=ty-s.y,d=hyp(dx,dy);if(d<.05){s.dvx=s.dvy=0;return}const sp=Math.min(maxSp(s)*(mul||1),d*2.6);s.dvx=dx/d*sp;s.dvy=dy/d*sp}
+function segDist(p,a,b){const abx=b.x-a.x,aby=b.y-a.y,l=abx*abx+aby*aby||1;const t=clamp(((p.x-a.x)*abx+(p.y-a.y)*aby)/l,0,1);return hyp(p.x-(a.x+abx*t),p.y-(a.y+aby*t))}
+function laneOpen(a,b){let m=12;for(const o of skaters)if(o.team!==a.team)m=Math.min(m,segDist(o,a,b));return m}
+
+/* ---------- puck actions ---------- */
+/* puck on ice: constant sliding friction plus a little air drag (units ≈ feet) */
+const ICE_FR=6,AIR=.15;
+function release(s,vx,vy){puck.kind='';puck.saucer=false;puck.bomb=false;puck.mich=false;puck.michIn=false;puck.ba=!!(breakaway&&breakaway.s===s);puck.owner=null;puck.bh=false;puck.high=false;puck.passTo=null;puck.lastSk=s;
+  puck.ice=!s.goalie&&(s.team===0?puck.y>100:puck.y<100)?s.team:-1; /* released from own half: icing is possible */
+  puck.vx=vx;puck.vy=vy;s.cd=.3;puck.lastTeam=s.team;const d=hyp(vx,vy)||1;s.fx=vx/d;s.fy=vy/d}
+// Where can skater s first reach the sliding puck? Steps the puck forward under ice friction.
+function intercept(s){
+  const sp0=hyp(puck.vx,puck.vy);if(sp0<1)return[puck.x,puck.y];
+  const ux=puck.vx/sp0,uy=puck.vy/sp0,ms=maxSp(s);let x=puck.x,y=puck.y,v=sp0;
+  for(let t=0;t<2;t+=.05){
+    if(hyp(x-s.x,y-s.y)<=ms*t*.85+2.5)return[x,y];
+    const nv=Math.max(0,v-(ICE_FR+AIR*v)*.05);x+=ux*(v+nv)*.025;y+=uy*(v+nv)*.025;v=nv;
+    if(x<3||x>97||y<3||y>197||v<=0)break;
+  }
+  return[clamp(x,3,97),clamp(y,3,197)];
+}
+function take(s){
+  puck.ice=-1;puck.saucer=false;puck.bomb=false;puck.mich=false;
+  if(puck.passTo===s){s.recvT=time;s.assist=puck.passer&&puck.passer.team===s.team&&!puck.passer.goalie?puck.passer:null}
+  else if(!puck.owner||puck.owner!==s)s.assist=null;
+  puck.owner=s;puck.shot=false;puck.lastTeam=s.team;s.cd=0;puck.passTo=null;
+  if(!s.goalie&&(s.team===0||netOn())){setHuman(s.team,s);setSL(s.team,.5)}
+  if(s.goalie){s.hold=0;puck.vx=puck.vy=0}
+}
+// high = top shelf: aimed tighter to the post, flies over sticks, and a moving goalie can't get a pad on it
+function shoot(s,power,aimHint,high){
+  const g=goalieOf(1-s.team),edge=high?NH-.7:NH-1.1;
+  let ax=(aimHint!=null&&Math.abs(aimHint)>.3)?50+Math.sign(aimHint)*edge:(g.x>=50?50-edge:50+edge);
+  ax+=rnd(-1,1)*(1.4/s.attr.acc)*(1.15-power*.55)*(high?1.2:1);
+  const ty=atkY(s.team)+(s.team?2:-2);
+  const dx=ax-puck.x,dy=ty-puck.y,d=hyp(dx,dy)||1,sp=(62+power*58)*s.attr.shot;
+  release(s,dx/d*sp,dy/d*sp);puck.shot=true;puck.high=!!high;s.cd=.35;sfx('shot');
+  puck.kind=time-(s.recvT||-9)<.5?'onetimer':power>.8?'slap':'wrist';
+  const n=N(s);
+  pbp(time-(s.recvT||-9)<.5?pick1([`${n} one-times it!`,`One-timer, ${n}!`]):power>.8?pick1([`${n} winds up... slapshot!`,`${n} lets it rip!`]):high?`${n} goes high!`:pick1([`${n} shoots.`,`Wrist shot, ${n}.`,`${n} fires one on net.`]),2);
+}
+// Backhand: available during/just after a deke, or when skating away from the net.
+// Instant release, no wind-up, and it fools the goalie longer than a forehand.
+function isBH(s){
+  if(s.bhWin>0)return true;
+  const dx=50-s.x,dy=atkY(s.team)-s.y,d=hyp(dx,dy)||1;
+  return (dx*s.fx+dy*s.fy)/d<-.1;
+}
+function backhand(s,aimHint,high){
+  const g=goalieOf(1-s.team);let side;
+  if(aimHint!=null&&Math.abs(aimHint)>.3)side=Math.sign(aimHint);
+  else{const wx=-s.fy*s.dekeSide;side=Math.abs(wx)>.3&&s.bhWin>0?Math.sign(wx):(g.x>=50?-1:1)}
+  const ax=50+side*(high?NH-.7:NH-1.1)+rnd(-1,1)*(1.2/s.attr.acc)*(high?.85:.7),ty=atkY(s.team)+(s.team?2:-2);
+  const dx=ax-puck.x,dy=ty-puck.y,d=hyp(dx,dy)||1,sp=78;
+  release(s,dx/d*sp,dy/d*sp);puck.shot=true;puck.bh=true;puck.high=!!high;s.cd=.35;s.bhWin=0;puck.kind='backhand';
+  noise(.07,.4,1400);tone(240,.07,'triangle',.05,120);toast('BACKHAND','small',700);
+  pbp(pick1([`${N(s)} on the backhand!`,`Backhand try, ${N(s)}!`]),2);
+}
+function pass(s,hx,hy,ai,saucer){
+  const mates=skaters.filter(m=>m.team===s.team&&m!==s);
+  const hint=hx!=null&&hyp(hx,hy)>.3;let best=null,bs=-1e9;
+  for(const m of mates){
+    const dx=m.x-s.x,dy=m.y-s.y,d=hyp(dx,dy);if(d<6)continue;
+    const open=laneOpen(s,m);if(ai&&open<3)continue;
+    const sc=hint?(dx*hx+dy*hy)/(d*hyp(hx,hy))*20+open*.3-d*.02:dy*dirOf(s.team)*.12+open*.8-d*.04+(m.call?6:0);
+    if(sc>bs){bs=sc;best=m}
+  }
+  if(!best)return false;
+  const d0=dist(best,puck);let sp=clamp(38+d0*.7,45,85);const lead=d0/sp*.8;
+  const tx=best.x+best.vx*lead,ty=best.y+best.vy*lead;let dx=tx-puck.x,dy=ty-puck.y,d=hyp(dx,dy)||1;
+  // sloppy CPU (Arena 1: half its passes go astray; Arena 2: about a quarter)
+  if(D.slop&&s.team===1&&!netOn()&&Math.random()<.5*D.slop){
+    const a=Math.atan2(dy,dx)+(Math.random()<.5?-1:1)*rnd(.35,.75);dx=Math.cos(a)*d;dy=Math.sin(a)*d;sp*=rnd(.75,1.3);
+    release(s,dx/d*sp,dy/d*sp);puck.shot=false;puck.passTo=null;puck.passer=s;
+    pbp(pick1([`${N(s)}'s pass misses ${N(best)}.`,`Bad pass by ${N(s)}.`,`${N(s)} puts it in the skates of nobody.`]),1);
+    sfx('pass');return true;
+  }
+  release(s,dx/d*sp,dy/d*sp);puck.shot=false;puck.passTo=best;puck.passer=s;
+  if(saucer){puck.saucer=true;pbp(pick1([`Saucer pass from ${N(s)} to ${N(best)}!`,`${N(s)} floats it over to ${N(best)}.`]),2);toast('SAUCER PASS','small',650)}
+  else if(!quietPass)pbp(s.goalie?`${N(s)} plays it up to ${N(best)}.`:pick1([`${N(s)} to ${N(best)}.`,`${N(s)} finds ${N(best)}.`,`Over to ${N(best)}.`]),1);
+  if(s.team===0||netOn()){setHuman(s.team,best);setSL(s.team,.9)}
+  sfx('pass');return true;
+}
+function knockLoose(car,by,hard){
+  puck.ice=-1;
+  puck.owner=null;const a=Math.atan2(puck.y-by.y,puck.x-by.x)+rnd(-.7,.7),sp=hard?30:22;
+  puck.vx=Math.cos(a)*sp+car.vx*.3;puck.vy=Math.sin(a)*sp+car.vy*.3;
+  car.cd=Math.max(car.cd,.6);by.cd=0;puck.lastTeam=by.team;puck.lastSk=by;puck.shot=false;puck.passTo=null;puck.high=false;
+  if(car===getHuman(car.team))stopCharge(car.team);
+  sfx(hard?'hit':'poke');
+  if(by.team===0&&phase==='play')questEvent(hard?'hit':'steal');
+  if(hard)pbp(pick1([`Big hit by ${N(by)}!`,`${N(by)} lays out ${N(car)}!`,`${N(car)} gets rocked by ${N(by)}!`]),2);
+  else pbp(by.goalie?`Poke check by ${N(by)}!`:pick1([`${N(by)} pokes it away.`,`Stripped by ${N(by)}.`,`${N(by)} with the takeaway.`]),1);
+}
+function tryPoke(s,car){
+  if(s.poke>0||dist(s,car)>4.6)return;
+  s.poke=.75;s.pokeT=.25;
+  if(car.deke>0)return; // the deke beats the poke
+  const fromBehind=breakaway&&breakaway.s===car?.4:1;
+  if(Math.random()<.35*s.attr.def*fromBehind*(s.team?D.pokeMul:1))knockLoose(car,s,false);
+}
+// CHECK: lunge into the carrier; the hit itself happens in collideSkaters
+function humanCheck(){
+  const s=human;if(s.chk>0)return;s.chk=.6;s.lungeT=.35;s.vx+=s.fx*15;s.vy+=s.fy*15;
+  noise(.06,.25,600);
+  if(!puck.owner&&dist(s,puck)<4.5)take(s);
+}
+// POKE: long stick reach, no body contact
+function humanPoke(){
+  const s=human;if(s.poke>0)return;s.poke=.5;s.pokeT=.25;tone(520,.04,'triangle',.04,380);
+  const own=puck.owner,reach=7.2;
+  if(!own){const d=dist(s,puck);if(d<reach){if(d<4.5)take(s);else{puck.vx=(s.x-puck.x)/d*22;puck.vy=(s.y-puck.y)/d*22;puck.shot=false;puck.lastTeam=s.team}}return}
+  if(own.team===s.team||own.goalie)return;
+  const dx=own.x-s.x,dy=own.y-s.y,d=hyp(dx,dy);
+  if(d>reach||(d>3.5&&(dx*s.fx+dy*s.fy)/d<.2))return;
+  if(own.deke>0){toast('DEKED','small',600);return}
+  if(Math.random()<Math.min(.95,.72*s.attr.def))knockLoose(own,s,false);
+}
+// DEKE: quick side-step that drags the puck across; beats pokes and checks while it lasts
+function doDeke(s,side){
+  if(s.dekeCd>0||puck.owner!==s)return;
+  s.spinUsed=false;
+  const px=-s.fy,py=s.fx;s.dekeSide=side||(Math.random()<.5?-1:1);
+  s.deke=.45;s.dekeCd=1.1/s.attr.hands;s.bhWin=.75;
+  const dk=14*s.attr.hands;s.vx+=px*s.dekeSide*dk+s.fx*6;s.vy+=py*s.dekeSide*dk+s.fy*6;
+  noise(.07,.3,3200);tone(700,.06,'triangle',.03,1100);
+}
+function humanDeke(){
+  const s=human,proj=input.x*-s.fy+input.y*s.fx;
+  doDeke(s,Math.abs(proj)>.3?Math.sign(proj):-s.dekeSide);
+}
+const spinUnlocked=()=>trophies>=ARENAS[2].need;
+/* Signature moves, one per arena (yours only):
+   Arena 2 SAUCER PASS  hold PASS, let go: the pass floats over the other team's sticks
+   Arena 3 SPIN-O-RAMA  tap DEKE again mid-deke
+   Arena 4 THE BOMB     wind a shot all the way up: a much harder slapshot the goalie reads late
+   Arena 5 THE MICHIGAN tap DEKE low beside the net: lift it lacrosse-style and tuck it in high */
+const MOVES=[null,null,{n:'SAUCER PASS',how:'new SAUCER button'},{n:'SPIN-O-RAMA',how:'new SPIN button'},{n:'THE BOMB',how:'new BOMB button'},{n:'THE MICHIGAN',how:'new MICHIGAN button, beside the net'}];
+let guestArenas=1;
+const hasMove=n=>(pctx?guestArenas:unlockedCount())>=n; // each player's own unlocked moves, friend games too
+const movesOpen=n=>unlockedCount()>=n;
+// low, beside the other team's net (not straight in front): where the Michigan works
+function michSpot(s){
+  if(!s||s.goalie||puck.owner!==s)return false;
+  const gl=atkY(s.team),dir=dirOf(s.team),along=(s.y-gl)*dir,side=Math.abs(s.x-50);
+  return along>=-7&&along<=2&&side>=4.5&&side<=15;
+}
+const MICH_T=.4;
+function michigan(s){
+  s.mich=MICH_T;s.cd=9;s.dvx=s.dvy=0;
+  noise(.12,.3,2800);tone(600,.25,'triangle',.05,1200);toast('THE MICHIGAN!','small',1100);
+  pbp(pick1([`${N(s)} lifts it on the blade... THE MICHIGAN!`,`Lacrosse goal attempt by ${N(s)}!`]),3);
+}
+function michShoot(s){
+  if(puck.owner!==s||(phase!=='play'&&phase!=='so')){s.cd=0;return}
+  const gl=atkY(s.team),dir=dirOf(s.team),side=s.x>=50?1:-1;
+  // tucked in from right beside the post, under the bar on the near side
+  puck.x=50+side*(NH+.2);puck.y=gl-dir*1.2;
+  const tx=50+side*(NH-2),ty=gl+dir*2.5,dx=tx-puck.x,dy=ty-puck.y,d=hyp(dx,dy)||1;
+  release(s,dx/d*55,dy/d*55);puck.shot=true;puck.high=true;puck.mich=true;s.cd=.4;sfx('shot');
+  puck.michIn=Math.random()<.7; // decided once: over the goalie's shoulder, or he gets a piece of it
+}
+/* SPIN-O-RAMA: a full 360 that protects the puck. Untouchable while spinning, a burst of speed,
+   the backhand stays live afterwards, and a goalie nearby bites and freezes. */
+const SPIN_T=.65;
+function spinMove(s){
+  s.spinUsed=true;s.spin=SPIN_T;s.deke=SPIN_T;s.bhWin=SPIN_T+.6;s.dekeCd=Math.max(s.dekeCd,1.4/s.attr.hands);
+  s.vx+=s.fx*9;s.vy+=s.fy*9;
+  noise(.18,.35,2400);tone(520,.3,'triangle',.05,1040);
+  toast('SPIN-O-RAMA!','small',900);
+  pbp(pick1([`SPIN-O-RAMA by ${N(s)}!`,`${N(s)} spins away from trouble!`,`What a spin move by ${N(s)}!`]),3);
+  if(phase==='play')questEvent('spin');
+}
+function switchPlayer(){let b=null,bd=1e9;for(const s of skaters)if(s.team===pctx&&s!==human){const d=dist(s,puck);if(d<bd){bd=d;b=s}}if(b){human=b;switchLock=.8;tone(880,.04,'sine',.04)}}
+
+/* ---------- AI ---------- */
+function assignMarks(t,car,chaser){
+  const defs=skaters.filter(s=>s.team===t&&s!==chaser&&!isHuman(s)),opps=skaters.filter(s=>s.team!==t&&s!==car),m=new Map(),used=new Set();
+  // the opponent closest to our net is the most dangerous, so they get covered first
+  const net={x:50,y:defY(t)},pairs=[];for(const a of defs)for(const b of opps)pairs.push([dist(a,b)+.6*dist(b,net),a,b]);pairs.sort((p,q)=>p[0]-q[0]);
+  for(const[,a,b]of pairs)if(!m.has(a)&&!used.has(b)){m.set(a,b);used.add(b)}
+  return m;
+}
+// Offence: in the zone, one supporter crashes the back door and one sits high at the point.
+// In transition, they fill wide lanes ahead. Either way they slide to the most open nearby spot.
+function supportPos(s,car){
+  const t=s.team,dir=dirOf(t),ay=atkY(t),mates=skaters.filter(m=>m.team===t&&m!==car);
+  const inZone=t?car.y>125:car.y<75,side=car.x<50?1:-1;
+  let spots;
+  if(inZone)spots=[[50+side*9,ay-dir*8],[50+side*18,ay-dir*44]];
+  else{const lanes=[18,50,82];let k=0,kd=1e9;lanes.forEach((l,i)=>{const d=Math.abs(l-car.x);if(d<kd){kd=d;k=i}});lanes.splice(k,1);
+    const y=clamp(car.y+dir*16,t?GT+40:GT+14,t?GB-14:GB-40);spots=lanes.map(x=>[x,y])}
+  // give each supporter the spot nearer to them (the other mate gets the other)
+  const other=mates.find(m=>m!==s);let base=spots[0];
+  if(other){const a=hyp(s.x-spots[0][0],s.y-spots[0][1])+hyp(other.x-spots[1][0],other.y-spots[1][1]),
+    b=hyp(s.x-spots[1][0],s.y-spots[1][1])+hyp(other.x-spots[0][0],other.y-spots[0][1]);
+    base=(a<b||(a===b&&s.i<other.i))?spots[0]:spots[1];}
+  let best=base,bs=-1e9;
+  for(let k=0;k<9;k++){
+    const p={x:clamp(base[0]+(k%3-1)*6,5,95),y:clamp(base[1]+(Math.floor(k/3)-1)*6,5,195)};
+    let open=10;for(const o of skaters)if(o.team!==t)open=Math.min(open,dist(o,p));
+    const sc=open+laneOpen(car,p)*1.2-hyp(p.x-base[0],p.y-base[1])*.3;
+    if(sc>bs){bs=sc;best=[p.x,p.y]}
+  }
+  return best;
+}
+function aiCarry(s,dt){
+  const t=s.team,dir=dirOf(t),ay=atkY(t),dNet=hyp(50-s.x,ay-s.y);
+  let opp=null,pd=99;for(const o of skaters)if(o.team!==t){const d=dist(o,s);if(d<pd){pd=d;opp=o}}
+  // Arena 1 CPU panics in its own half and fires the puck the length of the ice (usually icing)
+  if(D.slop&&t===1&&!netOn()&&s.cd<=0&&(t?s.y<100:s.y>100)&&!(breakaway&&breakaway.s===s)&&Math.random()<dt*(pd<12?1.6:.8)*D.slop){
+    const tx=rnd(18,82),ty=atkY(t)+dir*4,dx=tx-puck.x,dy=ty-puck.y,d=hyp(dx,dy)||1,sp=rnd(80,95);
+    release(s,dx/d*sp,dy/d*sp);puck.shot=false;sfx('pass');
+    pbp(pick1([`${N(s)} just fires it down the ice.`,`${N(s)} throws it away.`,`${N(s)} with a panicky clear.`]),1);return;
+  }
+  const inFront=t?s.y<ay-3:s.y>ay+3;
+  if(breakaway&&breakaway.s===s){ // CPU breakaway: drive in, deke the goalie, finish
+    const g=goalieOf(1-t),dg=dist(s,g);
+    if(dg<13&&s.dekeCd<=0&&Math.random()<dt*3)doDeke(s,Math.random()<.5?1:-1);
+    if(s.bhWin>0&&s.cd<=0&&dg<10&&Math.random()<dt*5){backhand(s,null,Math.random()<.5);return}
+    if(dg<16&&s.deke<=0&&s.bhWin<=0&&Math.random()<dt*.9){shoot(s,rnd(.6,1),null,Math.random()<.5);return}
+    steer(s,50+(s.x<50?-3:3),ay-dir*8,1);return;
+  }
+  if(s.cd<=0&&s.bhWin>0&&inFront&&dNet<30&&Math.random()<dt*4){backhand(s,null,Math.random()<.5);return}
+  if(s.cd<=0&&inFront&&dNet<32&&time-(s.recvT||-9)<.4&&Math.random()<dt*6*(t?D.shoot:1)){shoot(s,.9,null,Math.random()<.4);puck.bh=true;return} // one-timer
+  if(s.cd<=0&&inFront&&dNet<40&&Math.abs(s.x-50)<32){
+    const rate=(dNet<22?2.2:.7)*(t?D.shoot:1);
+    if(Math.random()<rate*dt){shoot(s,rnd(.45,1),null,Math.random()<.4);return}
+  }
+  if(pd<7&&Math.random()<dt*1.4&&pass(s,null,null,true))return;
+  if(dNet>70&&Math.random()<dt*.35&&pass(s,null,null,true))return;
+  if(opp&&pd<6.5&&s.dekeCd<=0&&Math.random()<dt*2*(t?D.shoot:1)){
+    doDeke(s,((s.x-opp.x)*-s.fy+(s.y-opp.y)*s.fx)>0?1:-1);
+  }
+  let tx=50+(s.x<50?-9:9),ty=ay-dir*18;
+  if(opp&&pd<10)tx+=s.x>opp.x?10:-10;
+  if(!inFront){tx=s.x<50?28:72;ty=ay-dir*12}
+  steer(s,clamp(tx,6,94),ty,1);
+}
+/* ---------- team tactics ----------
+   Every AI skater gets a job each frame, chosen from the game situation:
+   OFFENCE   own zone: OUTLET (boards, puck side) + STRETCH (far lane past centre)
+             neutral:  WIDE LANE (ahead, opposite side) + TRAILER (behind for a drop pass, safety)
+             attack:   BACK DOOR (far post for a cross-crease pass) + POINT (high, guards the counter)
+   DEFENCE   PRESSURE on the carrier (also steps in if the player gets beaten), COVER the most
+             dangerous opponents goal-side, SLOT when a threat is too far away to matter
+   LOOSE     LOOSE PUCK / RECEIVE (intercept), SUPPORT (outlet near the puck), SAFETY (between puck and net)
+   GOALIE    breakout OUTLET + CENTRE for our goalie; FORECHECK + HIGH against theirs */
+function spot(x,y,label,key,extra){return Object.assign({x:clamp(x,4,96),y:clamp(y,4,196),label,key},extra||{})}
+// give each player a spot (spots in priority order); sticky so roles don't flicker
+function assignSpots(players,spots,plan){
+  if(!players.length||!spots.length)return;
+  const cost=(s,p)=>hyp(s.x-p.x,s.y-p.y)-(s.roleKey===p.key?8:0);
+  if(players.length===1){plan.set(players[0],spots[0]);return}
+  const[a,b]=players,p0=spots[0],p1=spots[1]||spots[0];
+  if(cost(a,p0)+cost(b,p1)<=cost(a,p1)+cost(b,p0)){plan.set(a,p0);plan.set(b,p1)}else{plan.set(a,p1);plan.set(b,p0)}
+}
+// nudge an offensive spot to the most open nearby ice with a clean passing lane
+function getOpen(sp,car,t){
+  let best=sp,bs=-1e9;
+  for(let k=0;k<9;k++){
+    const p={x:clamp(sp.x+(k%3-1)*6,5,95),y:clamp(sp.y+(Math.floor(k/3)-1)*6,5,195)};
+    let open=10;for(const o of skaters)if(o.team!==t)open=Math.min(open,dist(o,p));
+    const lane=laneOpen(car,p),sc=open+lane*1.2-hyp(p.x-sp.x,p.y-sp.y)*.3;
+    if(sc>bs){bs=sc;best=Object.assign({},sp,{x:p.x,y:p.y,open,lane})}
+  }
+  // a scoring-area teammate that's open "calls" for the puck
+  best.call=best.key==='net'&&best.open>=7&&best.lane>=4;
+  return best;
+}
+function planTeam(t){
+  const plan=new Map(),dir=dirOf(t),ay=atkY(t),dy=defY(t),own=puck.owner;
+  const zone=y=>t?(y>125?'off':y<75?'def':'neu'):(y<75?'off':y>125?'def':'neu');
+  const nearest=(list,p)=>{let b=null,bd=1e9;for(const s of list){const d=dist(s,p);if(d<bd){bd=d;b=s}}return b};
+  const team=skaters.filter(s=>s.team===t);
+  let ais=team.filter(s=>!isHuman(s)&&s!==own);
+  const hm=t===0||netOn()?getHuman(t):null;
+  const opps=skaters.filter(o=>o.team!==t);
+  // our carrier, or the teammate our pass is heading to
+  const car=own&&!own.goalie&&own.team===t?own:(!own&&puck.passTo&&puck.passTo.team===t?puck.passTo:null);
+
+  if(car){ // ---------- OFFENCE ----------
+    if(car!==own&&ais.includes(car)){const[x,y]=intercept(car);plan.set(car,spot(x,y,'RECEIVE','rec'));ais=ais.filter(s=>s!==car)}
+    const z=zone(car.y),side=car.x<50?1:-1;let spots;
+    if(z==='off'){
+      const behindNet=t?car.y>GB-2:car.y<GT+2;
+      spots=[behindNet?spot(50,ay-dir*14,'SLOT','net'):spot(50+side*9,ay-dir*7,'BACK DOOR','net'),spot(50-side*6,ay-dir*42,'POINT','high')];
+    }else if(z==='neu'){
+      spots=[spot(50+side*32,car.y+dir*18,'WIDE LANE','wide'),spot(50-side*4,car.y-dir*14,'TRAILER','trail')];
+    }else{
+      spots=[spot(car.x<50?10:90,dy+dir*58,'OUTLET','out'),spot(car.x<50?78:22,dy+dir*95,'STRETCH','stretch')];
+    }
+    const tmp=new Map();assignSpots(ais,spots,tmp);
+    for(const[s,p]of tmp)plan.set(s,getOpen(p,car,t));
+  }
+  else if(own&&!own.goalie){ // ---------- DEFENCE ----------
+    const net={x:50,y:dy};
+    let presser=nearest(team,own);
+    // the player is the closest but has been beaten (carrier is past them): an AI steps up
+    const beaten=!!hm&&presser===hm&&(own.y-hm.y)*dir<-3&&dist(hm,own)>8;
+    if(presser!==hm||beaten){
+      if(beaten)presser=nearest(ais,own);
+      if(presser&&ais.includes(presser)){
+        plan.set(presser,spot(own.x+own.vx*.15,own.y+own.vy*.15-dir*1.5,beaten?'BACKCHECK':'PRESSURE','press',{poke:true}));
+        ais=ais.filter(s=>s!==presser);
+      }
+    }
+    const threats=opps.filter(o=>o!==own).sort((a,b)=>dist(a,net)-dist(b,net));
+    const spots=threats.map(o=>dist(o,net)>85&&zone(own.y)==='def'
+      ?spot(50,dy+dir*20,'SLOT','slot')
+      :spot(o.x+(50-o.x)*.3,o.y+(dy-o.y)*.3,'COVER #'+o.num,'cov'+o.num));
+    if(!spots.length)spots.push(spot(50,dy+dir*20,'SLOT','slot'));
+    assignSpots(ais,spots,plan);
+  }
+  else if(own&&own.goalie){ // ---------- GOALIE HAS IT ----------
+    const spots=own.team===t
+      ?[spot(puck.x<50?12:88,dy+dir*30,'OUTLET','out'),spot(50,dy+dir*48,'CENTRE','mid')]
+      :[spot(50+(puck.x<50?-12:12),ay-dir*20,'FORECHECK','fore'),spot(50,ay-dir*45,'HIGH','high')];
+    assignSpots(ais,spots,plan);
+  }
+  else{ // ---------- LOOSE PUCK ----------
+    const chaser=nearest(team,puck);
+    if(chaser&&ais.includes(chaser)){const[x,y]=intercept(chaser);plan.set(chaser,spot(x,y,'LOOSE PUCK','loose'));ais=ais.filter(s=>s!==chaser)}
+    const safety=spot(50+(puck.x-50)*.25,puck.y+(dy-puck.y)*.45,'SAFETY','safe');
+    const support=spot(50+(puck.x-50)*.5,puck.y+dir*10,'SUPPORT','sup');
+    // the one nearer our own net takes safety
+    assignSpots(ais,[safety,support],plan);
+  }
+  return plan;
+}
+function aiThink(dt){
+  for(const t of[0,1]){
+    const plan=planTeam(t);
+    for(const s of skaters){
+      if(s.team!==t)continue;
+      if(isHuman(s)){s.role=null;s.roleKey=null;s.call=false;continue}
+      if(puck.owner===s){s.role='PUCK';s.roleKey='car';s.call=false;aiCarry(s,dt);continue}
+      const p=plan.get(s);if(!p)continue;
+      s.role=p.label;s.roleKey=p.key;s.call=!!p.call;
+      if(p.poke&&puck.owner)tryPoke(s,puck.owner);
+      let tx=p.x,ty=p.y;
+      const chasing=p.key==='press'||p.key==='loose'||p.key==='rec';
+      if(!chasing)for(const m of skaters)if(m!==s&&m.team===t){const dx=s.x-m.x,dy=s.y-m.y,d=hyp(dx,dy);if(d<9&&d>0){tx+=dx/d*(9-d);ty+=dy/d*(9-d)}}
+      // stay onside: no attacker crosses the blue line before the puck is in the zone
+      if(!(t===0?puck.y<75:puck.y>125)){if(t===0)ty=Math.max(ty,75+SR+1.5);else ty=Math.min(ty,125-SR-1.5)}
+      steer(s,clamp(tx,3,97),clamp(ty,3,197),1);
+    }
+  }
+}
+function whistle(label,dot){
+  phase='stop';phaseT=1.4;charging=false;breakaway=null;
+  for(const s of all){s.dvx=s.dvy=0}
+  stopDot=dot;sfx('whistle');toast(label,'small',1300);
+  const L=label.replace('CPU ','');
+  if(L==='ICING')pbp(`Icing${label.startsWith('CPU')?' on the CPU':''}. Faceoff comes back.`,2);
+  else if(L==='OFFSIDE')pbp(`Whistle. ${label.startsWith('CPU')?'The CPU is':'You\'re'} offside.`,2);
+}
+function freezePuck(g){pbp(pick1([`${N(g)} covers it up.`,`${N(g)} freezes the puck.`]),2);whistle('WHISTLE',[puck.x<50?22:78,g.team?31:169])}
+/* ICING: shot/cleared from your own half of the red line, crosses the other goal line untouched (and not in the net).
+   Faceoff goes back into the icing team's own zone. */
+function checkIcing(){
+  if(phase!=='play'||puck.owner||puck.ice<0)return;
+  const t=puck.ice;
+  if(t===0?puck.y<GT-.6:puck.y>GB+.6)whistle(t===0?'ICING':'CPU ICING',[puck.x<50?22:78,t===0?169:31]);
+}
+/* OFFSIDE: the puck has to enter the attacking zone before any attacker does.
+   Faceoff at the neutral-zone dot just outside that blue line. */
+function checkOffside(prevY){
+  if(phase!=='play')return;
+  const o=puck.owner;if(o&&o.goalie)return;
+  const t=o?o.team:puck.lastTeam;if(t!==0&&t!==1)return;
+  const blue=t===0?75:125,entered=t===0?prevY>=blue&&puck.y<blue:prevY<=blue&&puck.y>blue;
+  if(!entered)return;
+  for(const s of skaters)if(s.team===t&&s!==o&&(t===0?s.y<blue-SR:s.y>blue+SR)){
+    whistle(t===0?'OFFSIDE':'CPU OFFSIDE',[puck.x<50?22:78,t===0?80:120]);return}
+}
+/* Goalies play angles: they sit on the line from the puck to the middle of the net, further out
+   when the shooter is in the slot, hugging the post when the puck is behind the goal line.
+   On a shot they read it (after a reaction delay), slide to the line, and drop into the butterfly
+   for low shots — which leaves the top corners open. */
+function goalieThink(dt){
+  for(const g of goalies){
+    const S=gStats(g),gl=g.team?GT:GB,out=g.team?1:-1;
+    g.fly=Math.max(0,(g.fly||0)-dt);g.gpoke=(g.gpoke||0)-dt;
+    let tx,ty;
+    if(puck.owner===g){
+      g.hold+=dt;tx=50;ty=gl+out*2.2;
+      // opponent close by: cover it up for a whistle. Nobody around: play it to a teammate.
+      let pressured=false;for(const o of skaters)if(o.team!==g.team&&dist(o,g)<9){pressured=true;break}
+      if(pressured&&g.hold>.55){freezePuck(g);return}
+      if(!pressured&&g.hold>.7){if(!pass(g,null,null,false))g.hold=.4}
+    }else{
+      const ba=!!(breakaway&&breakaway.s.team!==g.team);
+      const toward=!puck.owner&&puck.vy*out<-20;
+      if(toward){
+        g.react+=dt;const tt=(g.y-puck.y)/puck.vy;
+        if(tt>0&&tt<1.2&&g.react>S.greact+(puck.bh?.12:0)+(puck.bomb?.09:0)){
+          tx=clamp(puck.x+puck.vx*tt,41,59);ty=g.y;
+          if(tt<.32&&!g.fly&&puck.shot&&Math.random()<(puck.high?.3:.65))g.fly=.55; // drop to the butterfly
+        }
+      }else g.react=0;
+      if(tx===undefined){
+        const o=puck.owner,px=o?o.x:puck.x,py=o?o.y:puck.y;
+        if((py-gl)*out<1.5){tx=px<50?50-NH+1.3:50+NH-1.3;ty=gl+out*1.4} // behind the net: seal the post
+        else{
+          const dx=px-50,dy=py-gl,d=hyp(dx,dy)||1;
+          const depth=ba?6.5:d<12?1.8:clamp(1.8+(d-12)*.11,1.8,4.6);
+          tx=50+dx/d*depth;ty=gl+dy/d*depth;
+        }
+      }
+      // poke check a carrier who walks into the crease
+      const o=puck.owner;
+      if(o&&!o.goalie&&o.team!==g.team&&g.gpoke<=0&&dist(o,g)<5.2&&(o.y-gl)*out>0&&o.deke<=0){
+        g.gpoke=1.2;g.pokeT=.25;if(Math.random()<.38){knockLoose(o,g,false);toast('POKE CHECK','small',650)}}
+    }
+    let sp=S.glat*(g.fly>0?.45:1);
+    if(breakaway&&breakaway.s.team!==g.team&&breakaway.s.deke>0&&dist(g,breakaway.s)<12)sp*=.1; // bites on the deke
+    {const o=puck.owner;if(o&&!o.goalie&&o.team!==g.team&&o.spin>0&&dist(g,o)<16)sp*=.05} // frozen by the spin-o-rama
+    g.dvx=clamp((tx-g.x)*10,-sp,sp);g.dvy=clamp((ty-g.y)*10,-sp,sp);
+  }
+}
+function humanThink(){
+  if(human&&human.mich>0){human.dvx=human.dvy=0;return} // planted while lifting it for the Michigan
+  if(human&&human.bombT>0){const k=maxSp(human)*.35;human.dvx=input.x*k;human.dvy=input.y*k;return} // loading up the Bomb
+  let jx=input.x,jy=input.y;const m=hyp(jx,jy);if(m>1){jx/=m;jy/=m}
+  // pass coming to you and you're not steering: skate to meet it
+  if(m<.2&&!puck.owner&&puck.passTo===human){const[tx,ty]=intercept(human);steer(human,tx,ty,1);return}
+  const sp=maxSp(human)*(charging?.75:1);human.dvx=jx*sp;human.dvy=jy*sp;
+}
+
+/* ---------- physics ---------- */
+// rest = bounce off the boards (normal), tf = how much sliding speed survives along the boards
+function confine(o,r,rest,tf){
+  tf=tf==null?1:tf;
+  const cx=clamp(o.x,CR,W-CR),cy=clamp(o.y,CR,H-CR);
+  if((o.x<CR||o.x>W-CR)&&(o.y<CR||o.y>H-CR)){
+    const dx=o.x-cx,dy=o.y-cy,d=hyp(dx,dy),lim=CR-r;
+    if(d>lim){const nx=dx/d,ny=dy/d;o.x=cx+nx*lim;o.y=cy+ny*lim;const vn=o.vx*nx+o.vy*ny;
+      if(vn>0){const tx=o.vx-vn*nx,ty=o.vy-vn*ny;o.vx=tx*tf-vn*rest*nx;o.vy=ty*tf-vn*rest*ny}return true}
+    return false;
+  }
+  let hit=false;
+  if(o.x<r){o.x=r;if(o.vx<0){o.vx=-o.vx*rest;o.vy*=tf}hit=true}
+  if(o.x>W-r){o.x=W-r;if(o.vx>0){o.vx=-o.vx*rest;o.vy*=tf}hit=true}
+  if(o.y<r){o.y=r;if(o.vy<0){o.vy=-o.vy*rest;o.vx*=tf}hit=true}
+  if(o.y>H-r){o.y=H-r;if(o.vy>0){o.vy=-o.vy*rest;o.vx*=tf}hit=true}
+  return hit;
+}
+function circleRect(o,r,n,rest){
+  const cx=clamp(o.x,n.x0,n.x1),cy=clamp(o.y,n.y0,n.y1);let dx=o.x-cx,dy=o.y-cy,d=hyp(dx,dy);
+  if(d>=r)return false;
+  let nx,ny;
+  if(d===0){const l=o.x-n.x0,rt=n.x1-o.x,t=o.y-n.y0,b=n.y1-o.y,m=Math.min(l,rt,t,b);
+    if(m===l){nx=-1;ny=0;o.x=n.x0-r}else if(m===rt){nx=1;ny=0;o.x=n.x1+r}else if(m===t){nx=0;ny=-1;o.y=n.y0-r}else{nx=0;ny=1;o.y=n.y1+r}}
+  else{nx=dx/d;ny=dy/d;o.x=cx+nx*r;o.y=cy+ny*r}
+  const vn=o.vx*nx+o.vy*ny;if(vn<0){o.vx-=(1+rest)*vn*nx;o.vy-=(1+rest)*vn*ny}
+  return true;
+}
+function netPuck(px,py){
+  for(const n of NETS){
+    const inX=Math.abs(puck.x-50)<NH-.2,frontOk=n.fs>0?py>n.y0+PR:py<n.y1-PR;
+    if(inX&&frontOk){
+      const crossed=n.fs>0?puck.y<n.front-.5:puck.y>n.front+.5;
+      if(crossed&&(phase==='play'||phase==='so')){goal(1-n.def,n);return}
+      if(phase==='goal'){ // keep the puck in the twine
+        if(n.fs>0&&puck.y<n.y0+PR){puck.y=n.y0+PR;puck.vy=Math.abs(puck.vy)*.2}
+        if(n.fs<0&&puck.y>n.y1-PR){puck.y=n.y1-PR;puck.vy=-Math.abs(puck.vy)*.2}
+        if(Math.abs(puck.x-50)>NH-PR){puck.x=50+Math.sign(puck.x-50)*(NH-PR);puck.vx*=-.2}
+      }
+      continue;
+    }
+    if(circleRect(puck,PR,n,.45)&&puck.owner===null){puck.high=false;if(hyp(puck.vx,puck.vy)>30)tone(1400,.08,'triangle',.05,900)}
+  }
+}
+function collideSkaters(){
+  for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){
+    const a=all[i],b=all[j];if(a.goalie&&b.goalie)continue;
+    const rr=(a.goalie?GR:SR)+(b.goalie?GR:SR),dx=b.x-a.x,dy=b.y-a.y,d=hyp(dx,dy);
+    if(d>=rr||d===0)continue;
+    const nx=dx/d,ny=dy/d,ov=rr-d;
+    if(a.goalie){b.x+=nx*ov;b.y+=ny*ov}else if(b.goalie){a.x-=nx*ov;a.y-=ny*ov}else{a.x-=nx*ov/2;a.y-=ny*ov/2;b.x+=nx*ov/2;b.y+=ny*ov/2}
+    const vrel=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
+    if(vrel>0){
+      const j2=vrel*.6;
+      if(!a.goalie){a.vx-=j2*nx;a.vy-=j2*ny}
+      if(!b.goalie){b.vx+=j2*nx;b.vy+=j2*ny}
+      if(a.team!==b.team&&vrel>16&&!a.goalie&&!b.goalie&&phase==='play'){
+        const victim=puck.owner===a?a:puck.owner===b?b:null;
+        const hitter=victim===a?b:a;
+        if(victim&&victim.deke<=0&&Math.random()<Math.min(.95,(hitter.lungeT>0?.8:.35)*hitter.attr.def)){knockLoose(victim,hitter,true);shake=Math.max(shake,.35)}
+        else if(vrel>22)sfx('hit');
+      }
+    }
+  }
+}
+function stepPhysics(dt){
+  const n=Math.ceil(dt/(1/120)),h=dt/n;
+  for(let k=0;k<n;k++){
+    for(const s of all){
+      const acc=s.goalie?220:95*s.attr.accel;let ax=s.dvx-s.vx,ay=s.dvy-s.vy;const am=hyp(ax,ay),st=acc*h;if(am>st){ax=ax/am*st;ay=ay/am*st}
+      s.vx+=ax;s.vy+=ay;s.x+=s.vx*h;s.y+=s.vy*h;
+      if(s.goalie){ // stay in the blue paint
+        const gl=s.team?GT:GB,out=s.team?1:-1;s.x=clamp(s.x,41,59);
+        const r=clamp((s.y-gl)*out,1.2,breakaway?7.5:5.5);s.y=gl+r*out;}
+      else{confine(s,SR,.3);for(const nt of NETS)circleRect(s,SR,nt,.1)}
+    }
+    collideSkaters();
+    const px=puck.x,py=puck.y,o=puck.owner;
+    if(o){
+      // stickhandling: the puck sways side to side as the carrier skates
+      const handle=o.goalie?0:Math.sin(time*9+o.num)*.45*Math.min(1,hyp(o.vx,o.vy)/15);
+      if(o.mich>0){puck.x=o.x+o.fx*2.2;puck.y=o.y+o.fy*2.2;puck.vx=o.vx;puck.vy=o.vy;continue}
+      if(o.spin>0){ // puck circles the skater during the spin
+        const a=(1-o.spin/SPIN_T)*Math.PI*2*o.dekeSide,cs=Math.cos(a),sn=Math.sin(a),rx=o.fx*cs-o.fy*sn,ry=o.fx*sn+o.fy*cs;
+        puck.x=o.x+rx*2.8;puck.y=o.y+ry*2.8;puck.vx=o.vx;puck.vy=o.vy;confine(puck,PR,0);
+        if(phase==='play'||phase==='goal')netPuck(px,py);continue;
+      }
+      const off=o.goalie?2.2:2.8,lat=(o.deke>0?Math.sin((1-o.deke/.45)*Math.PI)*o.dekeSide*2.4:0)+handle;
+      puck.x=o.x+o.fx*off-o.fy*lat;puck.y=o.y+o.fy*off+o.fx*lat;puck.vx=o.vx;puck.vy=o.vy;
+      confine(puck,PR,0);
+      if(phase==='play'||phase==='goal')netPuck(px,py);
+    }else{
+      puck.x+=puck.vx*h;puck.y+=puck.vy*h;
+      const v0=hyp(puck.vx,puck.vy);
+      if(v0>0){const nv=Math.max(0,v0-(ICE_FR+AIR*v0)*h),f=nv/v0;puck.vx*=f;puck.vy*=f}
+      const sp=hyp(puck.vx,puck.vy);
+      if(confine(puck,PR,.6,.9)){puck.high=false;if(sp>25&&time-lastBoard>.12){lastBoard=time;sfx('board')}}
+      netPuck(px,py);
+      if(phase==='play'&&!puck.owner)puckContacts();
+    }
+  }
+}
+function puckContacts(){
+  if(puck.high&&hyp(puck.vx,puck.vy)<45)puck.high=false;
+  if(puck.saucer&&hyp(puck.vx,puck.vy)<28)puck.saucer=false; // it lands
+  if(puck.mich&&hyp(puck.vx,puck.vy)<20)puck.mich=false;
+  for(const g of goalies){
+    // how much net the goalie covers depends on stance and shot height:
+    // butterfly = wide low, open high. Standing = glove/blocker up high, less if he's still sliding.
+    const moving=hyp(g.vx,g.vy)>6;
+    // less of a sponge: smaller reach, fewer pucks swallowed, more live rebounds
+    if(puck.mich&&puck.michIn)continue; // the Michigan goes over his shoulder most of the time
+    const gr=puck.high?(g.fly>0?1.0:moving?1.15:1.6):(g.fly>0?2.05:1.65);
+    const d=dist(g,puck),rr=gr+PR;if(d>=rr||d===0)continue;
+    const nx=(puck.x-g.x)/d,ny=(puck.y-g.y)/d;puck.x=g.x+nx*rr;puck.y=g.y+ny*rr;
+    const S=gStats(g),out=g.team?1:-1,sp=hyp(puck.vx,puck.vy),wasShot=puck.shot&&puck.lastTeam!==g.team,wasHigh=puck.high;
+    if(wasShot){if(phase==='play'){shots[1-g.team]++;if(g.team===0)questEvent('save')}sfx('save')}
+    const gloveSide=g.team?1:-1; // the catching glove is on the goalie's left
+    if(wasHigh&&(puck.x-g.x)*gloveSide>0&&Math.random()<.5){take(g);if(wasShot){toast('GLOVE SAVE','small',800);pbp(pick1([`Glove save, ${N(g)}!`,`${N(g)} snags it out of the air!`]),2)}return}
+    if(sp<18||Math.random()<S.gctl*.12){take(g);if(wasShot){toast('SAVE','small',650);pbp(pick1([`${N(g)} holds on.`,`Save, ${N(g)}.`,`${N(g)} smothers it.`]),2)}return}
+    // rebound: a good goalie steers it to the corner, a shaky one spits it into the slot
+    const side=puck.x>=g.x?1:-1,a=Math.random()<S.gctl?Math.atan2(out*.35,side):Math.atan2(out,rnd(-.6,.6));
+    const v=clamp(sp*.35,14,38);puck.vx=Math.cos(a)*v;puck.vy=Math.sin(a)*v;
+    puck.shot=false;puck.high=false;puck.lastTeam=g.team;puck.passTo=null;puck.lastSk=g;puck.ice=-1;
+    if(wasShot){toast(wasHigh?'BLOCKER SAVE':g.fly>0?'PAD SAVE':'SAVE','small',650);
+      pbp(wasHigh?`Blocker save by ${N(g)}!`:g.fly>0?pick1([`Pad save, ${N(g)}! Rebound!`,`${N(g)} kicks it out!`]):`${N(g)} turns it aside.`,2)}
+    return;
+  }
+  let best=null,bd=3,brel=0;
+  for(const s of skaters){
+    const d=dist(s,puck);if(d>=3)continue;
+    const rel=hyp(puck.vx-s.vx,puck.vy-s.vy);
+    if(puck.high)continue; // flies over sticks
+    if(puck.saucer&&s.team!==puck.lastTeam)continue; // saucer pass sails over their sticks
+    if(rel>=95){
+      if(d>=2.6||s===puck.lastSk)continue;
+      if(s.team===puck.lastTeam&&puck.shot){ // a teammate's stick redirects it: tip
+        if(Math.random()<.5){const a=Math.atan2(puck.vy,puck.vx)+rnd(-.35,.35),v=rel*.85;puck.vx=Math.cos(a)*v;puck.vy=Math.sin(a)*v;puck.bh=true;puck.lastSk=s;puck.ice=-1;tone(900,.04,'triangle',.04);if(s.team===0)toast('TIP','small',500)}
+        continue;
+      }
+      if(s.team!==puck.lastTeam){puck.vx=-puck.vx*.3+rnd(-12,12);puck.vy=-puck.vy*.3;puck.shot=false;puck.lastTeam=s.team;puck.passTo=null;puck.ice=-1;sfx('save');return}
+      continue;
+    }
+    if(s.cd>0)continue;
+    if(d<bd){bd=d;best=s;brel=rel}
+  }
+  if(!best)return;
+  // hard passes can bounce off the blade
+  const fumble=D.slop&&best.team===1&&!netOn()&&brel>25&&Math.random()<.35*D.slop; // Arena 1 CPU can't handle a pass
+  if(fumble||(!puck.saucer&&brel>60&&Math.random()<(brel-60)/(90*best.attr.hands))){ // a saucer lands soft
+    puck.vx=puck.vx*.3+rnd(-9,9);puck.vy=puck.vy*.3+rnd(-9,9);best.cd=.2;puck.passTo=null;puck.ice=-1;puck.lastTeam=best.team;tone(400,.04,'triangle',.04);return;
+  }
+  take(best);
+}
+
+/* ---------- game flow ---------- */
+function goal(team,net){
+  if(phase==='play')cpuEmote(team===1?'scored':'conceded');
+  if(phase==='so'){lampNet=NETS.indexOf(net);soResult(true);return}
+  score[team]++;shots[team]++;phase='goal';phaseT=2.6;flash=1;shake=1;lampNet=NETS.indexOf(net);
+  puck.shot=false;puck.owner=null;charging=false;
+  for(const s of all){s.dvx=s.dvy=0}
+  const top=puck.high;breakaway=null;
+  { // call the goal: scorer is the last skater to touch it, assist from whoever passed it to them
+    const sc=puck.lastSk&&!puck.lastSk.goalie&&puck.lastSk.team===team?puck.lastSk:null,a=sc&&sc.assist;
+    const who=sc?N(sc):team===0?'your team':'the CPU';
+    pbp(`${pick1(['GOAL!','HE SCORES!','IT\'S IN!'])} ${who}${top?', top shelf':''}${a?`, from ${N(a)}`:''}! It's ${score[0]}–${score[1]}.`,3);
+    if(team===0){
+      questEvent('goal');
+      if(period===1&&PERIOD-clock<=10)questEvent('early');
+      if(top)questEvent('top');
+      if(puck.kind==='backhand')questEvent('backhand');
+      if(puck.kind==='onetimer')questEvent('onetimer');
+      if(puck.ba)questEvent('breakaway');
+      if(a)questEvent('assisted');
+      if(sc&&sc.card&&sc.card.id==='bell')questEvent('beck');
+    }
+  }
+  toast(team===0?(top?'TOP SHELF!':'GOAL!'):(top?'CPU ROOFS IT':'CPU SCORES'),'',2200,team===0?'home':'away');horn();updateHud();
+}
+// 3:00 regulation -> 1:00 sudden-death OT -> shootout
+function endPeriod(){
+  sfx('buzzer');charging=false;
+  if(period===1&&score[0]===score[1])pbp(`End of regulation, tied ${score[0]}–${score[1]}. We're going to overtime!`,3);
+  if(period===2)pbp('Nothing in overtime. This one goes to a shootout!',3);
+  if(period===1&&score[0]===score[1]){showInter('Tied after regulation','OVERTIME','START OVERTIME',()=>{period=2;clock=OT_LEN;faceoff()});return}
+  if(period===2){showInter('Still tied after overtime','SHOOTOUT','START SHOOTOUT',startShootout);return}
+  endGame();
+}
+function showInter(k,t,btn,next){
+  if(netRole==='host'){ // online: no button to wait on, carry on by itself
+    phase='inter';interNext=next;toast(t,'small',2400);
+    setTimeout(()=>{if(phase!=='inter')return;const f=interNext;interNext=null;sfx('whistle');if(f)f();updateHud()},2600);return}phase='inter';interNext=next;$('interKicker').textContent=k;$('interTitle').textContent=t;$('contBtn').textContent=btn;
+  $('iS0').textContent=score[0];$('iS1').textContent=score[1];$('iShots').textContent=shots[0]+' – '+shots[1];$('interOv').hidden=false}
+function endGame(){
+  if(netRole){netEnd();return}
+  phase='end';$('soBar').hidden=true;
+  const win=score[0]>score[1],how=period===3?'SO':period===2?'OT':'';
+  pbp(`That's the game! ${win?'You win':'The CPU wins'} ${Math.max(...score)}–${Math.min(...score)}${how==='SO'?' in the shootout':how==='OT'?' in overtime':''}.`,3);
+  $('endKicker').textContent=how?'Final / '+how:'Final';
+  $('endTitle').textContent=how==='SO'?(win?'SHOOTOUT WIN':'SHOOTOUT LOSS'):win?'YOU WIN':'CPU WINS';
+  $('eS0').textContent=score[0];$('eS1').textContent=score[1];$('eShots').textContent=shots[0]+' – '+shots[1];
+  // every finished game is worth 30 trophies; check for a newly opened arena
+  // trophies only for a win
+  const earned=win?TROPHIES_PER_GAME:0;
+  if(win)questEvent('win');
+  if(win&&score[1]===0)questEvent('shutout');
+  if(score[0]-(period===3&&soWinner===0?1:0)>=3)questEvent('hattrick');
+  const pk=score[0]*PUCKS_PER_GOAL;pucks+=pk;$('ePucks').textContent='+'+pk;
+  const before=unlockedCount();trophies+=earned;saveProgress();const after=unlockedCount();
+  $('earnAmt').textContent='+'+earned;
+  $('earnTotal').textContent=win?trophies+' total':'Trophies are for wins · '+trophies+' total';
+  const um=$('unlockMsg');
+  if(after>before){const a=ARENAS[after-1];um.textContent='NEW ARENA UNLOCKED: '+a.name.toUpperCase()+(MOVES[after]?' · NEW MOVE: '+MOVES[after].n+' ('+MOVES[after].how+')':'');um.hidden=false;setArena(after-1);$('againBtn').textContent='PLAY '+a.name.toUpperCase()}
+  else{um.hidden=true;$('againBtn').textContent='PLAY AGAIN'}
+  // first win of the day earns the daily star drop
+  dropPending=win&&lastDropDay!==today();$('dropBtn').hidden=!dropPending;
+  renderArenas();$('endOv').hidden=false;
+  paintRoadBtns();
+  const ready=passReady();$('passBtn2').hidden=!ready;$('passBtn2').textContent='PUCK PASS · '+ready+' TO CLAIM';
+}
+function newGame(){
+  audio();clearPbp();score=[0,0];shots=[0,0];period=1;clock=PERIOD;so=null;soWinner=-1;setup();faceoff();
+  pbp(`Welcome to ${ARENAS[arenaIdx].name}. Puck drop is coming up.`,2);
+  ['menuOv','endOv','interOv','pauseOv','soBar'].forEach(i=>$(i).hidden=true);updateHud();sfx('whistle');
+}
+
+/* ---------- shootout ----------
+   Shooter alone from centre ice against the goalie. One release per attempt, no rebounds.
+   Three rounds each (you shoot first), then sudden death. Winner gets one goal added to the score. */
+function startShootout(){period=3;so={res:[[],[]],turn:0};$('soBar').hidden=false;renderSO();nextAttempt()}
+function nextAttempt(){
+  const t=so.turn,sh=roster.find(s=>s.team===t&&s.i===0),g=goalieOf(1-t),dir=dirOf(t);
+  skaters=[sh];goalies=[g];all=[sh,g];
+  Object.assign(sh,{x:50,y:100-dir*6,vx:0,vy:0,dvx:0,dvy:0,fx:0,fy:dir,cd:0,deke:0,dekeCd:0,bhWin:0,poke:0});
+  Object.assign(g,{x:50,y:(g.team?GT:GB)+(g.team?2.2:-2.2),vx:0,vy:0,dvx:0,dvy:0,fly:0,react:0,hold:0,gpoke:0});
+  Object.assign(puck,{x:50,y:sh.y+dir*2.8,vx:0,vy:0,owner:null,lastTeam:t,shot:false,high:false,bh:false,passTo:null,lastSk:null,trail:[]});
+  human=t===0?sh:null;if(netOn())slot[1].human=null;take(sh);if(t!==0)human=null;
+  breakaway={s:sh};charging=false;lampNet=-1;so.t=0;so.rel=null;phase='so';camY=sh.y;
+  toast(t===0?'YOUR SHOT':'CPU SHOOTS','small',900);
+  pbp(`${N(sh)} picks up the puck at centre... in on ${N(g)}.`,3);
+}
+function soUpdate(dt){
+  so.t+=dt;const sh=skaters[0],g=goalies[0];
+  if(puck.owner===g){soResult(false,'SAVE');return}
+  breakaway=puck.owner===sh?{s:sh}:null;
+  if(so.rel===null&&puck.owner!==sh){so.rel=so.t;sh.cd=99} // released: no second touch
+  if(sh.team===0||netOn())withP(sh.team,()=>{if(charging){charge=Math.min(1,charge+dt/.7);if(puck.owner!==human)charging=false}humanThink()});
+  else if(puck.owner===sh)aiCarry(sh,dt);else{sh.dvx=sh.dvy=0}
+  goalieThink(dt);stepPhysics(dt);
+  if(phase!=='so')return;
+  if(so.rel!==null){
+    const sp=hyp(puck.vx,puck.vy),away=puck.vy*dirOf(sh.team)<-5;
+    if(so.t-so.rel>2.4||sp<10||(away&&puck.lastSk===g))soResult(false,puck.lastSk===g?'SAVE':'NO GOAL');
+  }else if(so.t>10)soResult(false,'TIME');
+}
+function soResult(scored,label){
+  so.res[so.turn].push(scored);phase='soWait';phaseT=1.7;charging=false;breakaway=null;
+  for(const s of all){s.dvx=s.dvy=0}
+  if(scored){horn();flash=1;shake=.6;toast(so.turn===0?'SCORES!':'CPU SCORES','',1500,so.turn===0?'home':'away');pbp(`${N(skaters[0])} scores!`,3)}
+  else{toast(label,'small',1000);pbp(label==='SAVE'?`Stopped by ${N(goalies[0])}!`:label==='TIME'?'Out of time, no goal.':`${N(skaters[0])} misses.`,3)}
+  renderSO();
+}
+function soAdvance(){
+  const[a,b]=so.res,sum=r=>r.filter(Boolean).length,g0=sum(a),g1=sum(b),n0=a.length,n1=b.length;
+  let w=-1;
+  if(n0<=3&&n1<=3){if(g0>g1+(3-n1))w=0;else if(g1>g0+(3-n0))w=1}
+  if(w<0&&n0===n1&&n0>=3&&g0!==g1)w=g0>g1?0:1;
+  if(w>=0){soWinner=w;score[w]++;updateHud();endGame();return}
+  so.turn=n0>n1?1:0;nextAttempt();
+}
+function renderSO(){
+  if(!so)return;
+  const slots=Math.max(3,so.res[0].length,so.res[1].length);
+  for(const t of[0,1]){$('so'+t).innerHTML=Array.from({length:slots},(_,i)=>{const r=so.res[t^myT][i];return`<i class="mk${r===true?' g':r===false?' x':''}"></i>`}).join('')}
+}
+
+/* ---------- arenas & trophies (saved on this device) ---------- */
+const unlockedCount=()=>ARENAS.filter(a=>trophies>=a.need).length;
+/* ---------- player profiles (this device) ----------
+   Each username has its own save: trophies, arena, legends, upgrades, gold, pucks, pass, quests.
+   Settings (sound, announcer, roles) stay shared by everyone on the device. */
+let curUser='';
+const PKEY=(u,k)=>'slapshot-u:'+u.toLowerCase()+':'+k;
+const ls={get:k=>{try{return localStorage.getItem(k)}catch(_){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(_){}},del:k=>{try{localStorage.removeItem(k)}catch(_){}}};
+function profileList(){try{const a=JSON.parse(ls.get('slapshot-profiles')||'[]');return Array.isArray(a)?a.filter(x=>typeof x==='string'):[]}catch(_){return[]}}
+const K=k=>PKEY(curUser,k);
+function saveProgress(){if(!curUser)return;try{localStorage.setItem(K('trophies'),String(trophies));localStorage.setItem(K('arena'),String(arenaIdx));
+  localStorage.setItem(K('cards'),JSON.stringify({owned,deck,lastDropDay,gold,prog,pucks,passClaimed,bonusClaimed,questsDay,quests,emotes,roadClaimed}))}catch(_){}}
+/* ---------- emotes ----------
+   Everyone starts with the first 3. The rest come from Epic (50%), Mythic (75%) and Legendary (always)
+   star drops. Tap the bubble button on the rink (or T on a keyboard) and pick one; it pops up for both
+   players in an online game. A short cooldown stops spam. */
+const EMOTES=[
+  {id:'gg',ic:'\u{1F91D}',tx:'GG'},{id:'nice',ic:'\u{1F44F}',tx:'Nice one!'},{id:'oops',ic:'\u{1F605}',tx:'Oops'},
+  {id:'snipe',ic:'\u{1F3AF}',tx:'Top cheese!'},{id:'robbed',ic:'\u{1F9E4}',tx:'Robbed!'},{id:'dangle',ic:'\u{1F3D2}',tx:'Dangle!'},
+  {id:'ice',ic:'\u{1F9CA}',tx:'Ice cold'},{id:'fire',ic:'\u{1F525}',tx:'On fire!'},{id:'cry',ic:'\u{1F62D}',tx:'Noooo'},
+  {id:'angry',ic:'\u{1F624}',tx:'Come on!'},{id:'laugh',ic:'\u{1F602}',tx:'LOL'},{id:'cool',ic:'\u{1F60E}',tx:'Too easy'},
+  {id:'wave',ic:'\u{1F44B}',tx:'Hey!'},{id:'think',ic:'\u{1F914}',tx:'Hmm...'},{id:'goat',ic:'\u{1F410}',tx:'GOAT'},
+  {id:'zamboni',ic:'\u{1F69C}',tx:'Zamboni time'},
+  // trash talk
+  {id:'skill',ic:'\u{1F4C9}',tx:'Skill issue'},{id:'cooked',ic:'\u{1F373}',tx:'You\'re cooked'},{id:'clown',ic:'\u{1F921}',tx:'Clown move'},
+  {id:'yawn',ic:'\u{1F971}',tx:'Boring...'},{id:'sitdown',ic:'\u{1FA91}',tx:'Sit down'},{id:'cryabout',ic:'\u{1F37C}',tx:'Cry about it'},
+  {id:'bye',ic:'\u{1F44B}',tx:'Bye bye'},{id:'ratio',ic:'\u{1F4AF}',tx:'Ratio'},{id:'l',ic:'\u{1F1F1}',tx:'Take the L'},
+  {id:'sixseven',ic:'\u{1F937}',tx:'6 7!'}];
+const START_EMOTES=['gg','nice','oops'];
+const emoteById=id=>EMOTES.find(e=>e.id===id);
+let emotes=START_EMOTES.slice(),emCool=0,emTimers={};
+function resetProgress(){ // a brand-new player's starting point
+  trophies=0;arenaIdx=0;owned=['bell'];deck={F1:null,F2:null,D:'bell',G:null};lastDropDay='';dropPending=false;gold=100;
+  prog={bell:{copies:10,lv:{}}};pucks=0;passClaimed=[];bonusClaimed=0;questsDay='';quests=[];emotes=START_EMOTES.slice();roadClaimed=[];
+}
+function loadProgress(){resetProgress();if(!curUser)return;try{
+  trophies=Math.max(0,parseInt(localStorage.getItem(K('trophies'))||'0',10)||0);arenaIdx=parseInt(localStorage.getItem(K('arena'))||'0',10)||0;
+  const c=JSON.parse(localStorage.getItem(K('cards'))||'null');
+  if(c){
+    owned=(c.owned||[]).filter(cardById);
+    const fresh=!c.prog; // save from before the starter existed
+    if(!owned.includes('bell'))owned.unshift('bell');
+    for(const k in deck)deck[k]=c.deck&&owned.includes(c.deck[k])?c.deck[k]:null;
+    if(fresh&&!deck.D)deck.D='bell';
+    lastDropDay=c.lastDropDay||'';gold=Math.max(0,+c.gold||0)+(fresh?100:0);
+    if(c.questsDay&&Array.isArray(c.quests)){questsDay=c.questsDay;quests=c.quests.filter(q=>questById(q.id))}
+    if(Array.isArray(c.roadClaimed))roadClaimed=c.roadClaimed.filter(n=>Number.isFinite(n));
+    if(Array.isArray(c.emotes))emotes=[...new Set([...START_EMOTES,...c.emotes.filter(emoteById)])];
+    pucks=Math.max(0,+c.pucks||0);passClaimed=Array.isArray(c.passClaimed)?c.passClaimed:[];bonusClaimed=+c.bonusClaimed||0;
+    if(c.prog){prog=c.prog;
+      // shot power / accuracy are no longer upgradeable: refund any levels bought there
+      for(const id in prog){const p=prog[id],cd=cardById(id);if(!cd||cd.pos==='G')continue;
+        for(const k of['shot','acc'])while(p.lv[k]>0){p.lv[k]--;p.copies+=CARDS_PER_UP;gold+=upCost(p.lv[k])}
+        delete p.lv.shot;delete p.lv.acc}}
+  }
+}catch(_){}}
+const today=()=>new Date().toLocaleDateString('en-CA');
+function cleanName(v){return String(v||'').replace(/[^A-Za-z0-9 _.-]/g,'').replace(/\s+/g,' ').trim().slice(0,16)}
+function switchUser(name){
+  curUser=name;ls.set('slapshot-current',name);
+  loadProgress();setArena(arenaIdx);applyDeck();renderArenas();setBoard();
+  $('whoName').textContent=name;
+}
+function createUser(raw){
+  const name=cleanName(raw);
+  if(!name){profMsg('Use letters or numbers, up to 16 characters.');return}
+  const list=profileList();
+  if(list.some(n=>n.toLowerCase()===name.toLowerCase())){profMsg('That name is taken on this device. Pick it from the list or try another.');return}
+  // the first player made on this device keeps the save from before usernames existed
+  if(!list.length&&ls.get('slapshot-cards')!==null){
+    for(const k of['trophies','arena','cards']){const v=ls.get('slapshot-'+k);if(v!==null)ls.set(PKEY(name,k),v)}
+  }
+  list.push(name);ls.set('slapshot-profiles',JSON.stringify(list));
+  $('newName').value='';switchUser(name);closeProfiles();
+}
+let delArm='';
+function deleteUser(name){
+  if(delArm!==name){delArm=name;renderProfiles();return} // second tap confirms
+  delArm='';
+  const list=profileList().filter(n=>n!==name);ls.set('slapshot-profiles',JSON.stringify(list));
+  for(const k of['trophies','arena','cards'])ls.del(PKEY(name,k));
+  if(curUser===name){curUser='';ls.del('slapshot-current');if(list.length)switchUser(list[0])}
+  renderProfiles();
+}
+const profMsg=t=>{$('profMsg').textContent=t};
+function userSummary(n){
+  const t=parseInt(ls.get(PKEY(n,'trophies'))||'0',10)||0;let leg=1;
+  try{const c=JSON.parse(ls.get(PKEY(n,'cards'))||'null');if(c&&Array.isArray(c.owned))leg=new Set(['bell',...c.owned]).size}catch(_){}
+  return t+' trophies \u00b7 '+leg+' player'+(leg===1?'':'s');
+}
+function renderProfiles(){
+  const list=profileList();
+  $('profList').innerHTML=list.length?list.map((n,i)=>`<div class="prof${n===curUser?' cur':''}">
+    <button class="profPick" data-i="${i}"><b></b><span>${userSummary(n)}</span></button>
+    <button class="profDel${delArm===n?' armed':''}" data-i="${i}" aria-label="Delete">${delArm===n?'Tap to delete':'Delete'}</button></div>`).join('')
+    :'<p class="profEmpty">No players yet. Make one below.</p>';
+  // names go in as text, never as HTML
+  [...document.querySelectorAll('#profList .profPick b')].forEach((b,i)=>{b.textContent=list[i]});
+  const first=!curUser;$('profClose').hidden=first;
+  $('profIntro').textContent=first?(ls.get('slapshot-cards')!==null&&!list.length?'Pick a username. Your current progress will be saved to it.':'Pick your player or make a new one.'):'Each player has their own trophies, legends and upgrades on this device.';
+}
+function openProfiles(){delArm='';profMsg('');renderProfiles();hideAllOv();$('profOv').hidden=false;setTimeout(()=>{if(!curUser)try{$('newName').focus()}catch(_){}},50)}
+function closeProfiles(){$('profOv').hidden=true;$('menuOv').hidden=false}
+
+/* ---------- daily star drop ----------
+   First win of the day. The rarity is rolled up front; each tap can climb one rarity
+   (Rare -> Super Rare -> Epic -> Mythic -> Legendary) until it reaches it, then it bursts open.
+     Rare 40%        gold 40-70
+     Super Rare 28%  gold 80-130
+     Epic 15%        gold 120 + 4-6 player cards
+     Mythic 7%       gold 200 + 8-12 player cards
+     Legendary 10%   a new legend + 150 gold (20 player cards if you own everyone) */
+const RARITY=[{n:'RARE',c:'#3fc463'},{n:'SUPER RARE',c:'#2f8bff'},{n:'EPIC',c:'#b04cff'},{n:'MYTHIC',c:'#ff3d5a'},{n:'LEGENDARY',c:'#ffc629'}];
+let drop=null;
+const ri=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+function rollDrop(minTier){
+  const r=Math.random(),tier=Math.max(minTier||0,r<.10?4:r<.17?3:r<.32?2:r<.60?1:0),pick=a=>a[Math.floor(Math.random()*a.length)];
+  const rw={gold:0,copies:0,copiesOf:null,card:null};
+  if(tier===0)rw.gold=ri(4,7)*10;
+  else if(tier===1)rw.gold=ri(8,13)*10;
+  else if(tier===2){rw.gold=120;rw.copies=ri(4,6)}
+  else if(tier===3){rw.gold=200;rw.copies=ri(8,12);
+    const pool=CARDS.filter(c=>!owned.includes(c.id));if(pool.length&&Math.random()<.05){rw.card=pick(pool);rw.copies=0}} // Mythic: 5% chance of a new legend
+  else{const pool=CARDS.filter(c=>!owned.includes(c.id));rw.gold=150;if(pool.length)rw.card=pick(pool);else rw.copies=20}
+  if(rw.copies)rw.copiesOf=pick(owned);
+  {const pool=EMOTES.filter(e=>!emotes.includes(e.id)),chance=[0,0,.5,.75,1][tier];
+   if(pool.length&&Math.random()<chance)rw.emote=pick(pool).id}
+  return{tier,rw};
+}
+function openDrop(){
+  if(!dropPending)return;
+  lastDropDay=today();dropPending=false; // claimed the moment it's rolled
+  showDrop(0);
+}
+// minTier: the lowest rarity this drop can land on (Puck Pass milestones guarantee Epic and up)
+function showDrop(minTier){
+  const{tier,rw}=rollDrop(minTier);
+  // 3 chances: the star starts at its lowest possible rarity, and each of the 3 taps can upgrade it
+  // (sometimes by more than one step). The upgrades are spread randomly across the taps.
+  const start=Math.min(minTier||0,tier),inc=[0,0,0];
+  for(let k=start;k<tier;k++)inc[Math.floor(Math.random()*3)]++;
+  drop={tier,rw,stage:start,inc,taps:0,opened:false};saveProgress();
+  $('dropBtn').hidden=true;$('dropReward').hidden=true;$('dropDone').hidden=true;$('dropHint').hidden=false;$('starBtn').hidden=false;
+  $('dropHint').textContent='3 chances. Every tap can upgrade it.';
+  paintDrop();$('dropOv').hidden=false;
+}
+function paintDrop(){const t=RARITY[drop.stage];$('starBtn').style.setProperty('--rar',t.c);$('dropRar').style.setProperty('--rar',t.c);$('dropRar').textContent=t.n}
+function tapStar(){
+  if(!drop||drop.opened||drop.busy)return;audio();
+  const b=$('starBtn');b.classList.remove('bump');void b.offsetWidth;b.classList.add('bump');
+  const up=drop.inc[drop.taps];drop.taps++;
+  if(up>0){drop.stage+=up;paintDrop();tone(392*Math.pow(1.22,drop.stage),.22,'triangle',.07);noise(.06,.25,3500);if(drop.stage>=3)shake=.35;
+    $('dropHint').textContent=(up>1?'DOUBLE UPGRADE! ':'UPGRADE! ')+(3-drop.taps)+' chance'+(3-drop.taps===1?'':'s')+' left';}
+  else{tone(220,.1,'triangle',.04);$('dropHint').textContent='No upgrade. '+(3-drop.taps)+' chance'+(3-drop.taps===1?'':'s')+' left'}
+  if(drop.taps<3)return;
+  // out of chances: burst open
+  drop.busy=true;$('dropHint').textContent='Opening...';
+  setTimeout(()=>{drop.busy=false;openStar()},700);
+}
+function openStar(){
+  if(!drop||drop.opened)return;
+  drop.opened=true;$('starBtn').hidden=true;$('dropHint').hidden=true;
+  const rw=drop.rw;gold+=rw.gold;
+  let html=`<div class="reward">+${rw.gold} GOLD</div>`;
+  if(rw.copies){const c=cardById(rw.copiesOf);progOf(c.id).copies+=rw.copies;
+    html+=`<div class="reward" style="margin-top:10px;color:var(--text)">+${rw.copies} ${c.name.toUpperCase()} CARDS</div><p style="margin-top:6px">${progOf(c.id).copies} cards. 10 upgrades one attribute.</p>`}
+  if(rw.card){
+    const c=rw.card;owned.push(c.id);progOf(c.id);const slot=SLOTS.find(s=>s.pos===c.pos&&!deck[s.k]);if(slot)deck[slot.k]=c.id;
+    html+=`<div class="reward" style="margin:12px 0 10px">NEW LEGEND!</div>${legendHTML(c,false)}<p style="margin-top:8px">${slot?'Added to your deck.':'Open your deck to equip.'}</p>`;
+    horn();
+  }else tone(880,.25,'triangle',.06,1320);
+  if(rw.emote&&!emotes.includes(rw.emote)){const em=emoteById(rw.emote);emotes.push(em.id);
+    html+=`<div class="reward" style="margin:12px 0 8px">NEW EMOTE!</div><div class="emChip" style="justify-content:center;font-size:18px"><span class="ic">${em.ic}</span><span class="tx">${em.tx}</span></div>`}
+  $('dropReward').innerHTML=html;
+  saveProgress();$('dropReward').hidden=false;$('dropDone').hidden=false;
+  renderArenas();
+}
+
+/* ---------- deck ---------- */
+function legendHTML(c,on){return`<div class="legend${on?' on':''}"><span class="jn">${c.num}</span><span><span class="ln">${c.name}${on?'<span class="eq">IN DECK</span>':''}</span>
+  <span class="ls">${c.pos==='G'?'GOALIE':c.pos==='D'?'DEFENCE':'FORWARD'} · ${c.style.toUpperCase()}</span><span class="ld">${c.desc}</span></span></div>`}
+function renderEmoteGrid(){
+  $('emCount').textContent=emotes.length+' / '+EMOTES.length;
+  $('emGrid').innerHTML=EMOTES.map(e=>{const has=emotes.includes(e.id);
+    return`<div class="emChip${has?'':' locked'}"><span class="ic">${has?e.ic:'?'}</span><span class="tx">${has?e.tx:'Epic+ star drops'}</span></div>`}).join('');
+}
+function renderDeck(){
+  renderEmoteGrid();
+  $('slots').innerHTML=SLOTS.map(s=>{const c=cardById(deck[s.k]);return`<div class="slot${c?' full':''}"><span class="sl">${s.label.toUpperCase()}</span><span class="sn">${c?c.name.split(' ').slice(-1)[0]:'Empty'}</span></div>`}).join('');
+  $('ownCount').textContent=owned.length+' / '+CARDS.length+' · '+gold+' gold';
+  $('cardList').innerHTML=CARDS.map(c=>{
+    const posN=c.pos==='G'?'GOALIE':c.pos==='D'?'DEFENCE':'FORWARD';
+    if(!owned.includes(c.id))return`<div class="legend off"><span class="jn">?</span><span><span class="ln">Locked legend</span><span class="ls">${posN}</span><span class="ld">Found in Legendary star drops</span></span></div>`;
+    const on=Object.values(deck).includes(c.id),p=progOf(c.id),pct=Math.min(100,p.copies/CARDS_PER_UP*100);
+    const rows=attrsOf(c).map(a=>{const lv=lvOf(c.id,a.k),max=lv>=MAX_LV,can=!max&&p.copies>=CARDS_PER_UP&&gold>=upCost(lv);
+      return`<div class="arow"><span class="an">${a.n}</span><span class="pips">${Array.from({length:MAX_LV},(_,i)=>`<i class="${i<lv?'f':''}"></i>`).join('')}</span>
+        <button class="upBtn" id="up-${c.id}-${a.k}" data-id="${c.id}" data-a="${a.k}" ${can?'':'disabled'}>${max?'MAX':'+ '+upCost(lv)+'g'}</button></div>`}).join('');
+    return`<div class="pcard${on?' on':''}">
+      ${legendHTML(c,on)}
+      <div class="copies"><span>PLAYER CARDS</span><span class="bar"><i style="width:${pct}%"></i></span><b>${p.copies}/${CARDS_PER_UP}</b></div>
+      <div class="attrs">${rows}</div>
+      <button class="ghost eqBtn" id="eq-${c.id}" data-id="${c.id}">${on?'Remove from deck':'Put in deck'}</button>
+    </div>`}).join('');
+}
+function toggleCard(id){
+  const c=cardById(id);if(!c||!owned.includes(id))return;
+  const k=Object.keys(deck).find(k=>deck[k]===id);
+  if(k)deck[k]=null;
+  else{const fits=SLOTS.filter(s=>s.pos===c.pos);const slot=fits.find(s=>!deck[s.k])||fits[0];deck[slot.k]=id}
+  saveProgress();renderDeck();renderArenas();
+}
+function setArena(i){
+  arenaIdx=clamp(i,0,unlockedCount()-1);D=arenaD(arenaIdx);saveProgress();renderArenas();
+  if(typeof resize==='function'&&iceGrad)resize();
+}
+/* ---------- Puck Pass (free) ----------
+   10 pucks per goal you score. 30 pucks per tier, 30 tiers.
+   Rewards: gold, player cards (random player you own), star drops; every 5th tier is an Epic-or-better
+   star drop, tiers 10/20 Mythic-or-better, tier 30 a guaranteed Legendary. After tier 30, every
+   60 more pucks fills the bonus bank for another star drop. */
+const PUCKS_PER_GOAL=10,PUCKS_PER_TIER=30,PASS_TIERS=30,BONUS_PUCKS=60;
+let pucks=0,passClaimed=[],bonusClaimed=0;
+function passReward(t){
+  if(t===PASS_TIERS)return{type:'drop',min:4,label:'Legendary star drop',sub:'Guaranteed new legend',big:true};
+  if(t%10===0)return{type:'drop',min:3,label:'Mythic star drop',sub:'Mythic or better',big:true};
+  if(t%5===0)return{type:'drop',min:2,label:'Epic star drop',sub:'Epic or better',big:true};
+  if(t%3===0)return{type:'cards',n:t<15?5:8,label:(t<15?5:8)+' player cards',sub:'For a random player you own'};
+  if(t%2===0)return{type:'gold',n:150,label:'150 gold',sub:'Spend on upgrades'};
+  return{type:'gold',n:75,label:'75 gold',sub:'Spend on upgrades'};
+}
+const tierOf=()=>Math.min(PASS_TIERS,Math.floor(pucks/PUCKS_PER_TIER));
+const bonusReady=()=>Math.max(0,Math.floor(Math.max(0,pucks-PASS_TIERS*PUCKS_PER_TIER)/BONUS_PUCKS)-bonusClaimed);
+function passReady(){let n=0;for(let t=1;t<=tierOf();t++)if(!passClaimed.includes(t))n++;return n+bonusReady()}
+function claimTier(t){
+  if(t>0&&(passClaimed.includes(t)||tierOf()<t))return;
+  if(t===0&&bonusReady()<1)return;
+  const r=t===0?{type:'drop',min:1}:passReward(t);
+  if(t===0)bonusClaimed++;else passClaimed.push(t);
+  audio();
+  if(r.type==='gold'){gold+=r.n;tone(880,.2,'triangle',.06,1320);toast('+'+r.n+' GOLD','small',900)}
+  else if(r.type==='cards'){const id=pick1(owned);progOf(id).copies+=r.n;tone(660,.2,'triangle',.06,990);toast('+'+r.n+' '+cardById(id).name.split(' ').slice(-1)[0].toUpperCase()+' CARDS','small',1200)}
+  else{saveProgress();showDrop(r.min);}
+  saveProgress();renderPass();renderArenas();
+}
+function renderPass(){
+  const t=tierOf(),into=t>=PASS_TIERS?(pucks-PASS_TIERS*PUCKS_PER_TIER)%BONUS_PUCKS:pucks%PUCKS_PER_TIER,need=t>=PASS_TIERS?BONUS_PUCKS:PUCKS_PER_TIER;
+  $('passTierLbl').textContent=t>=PASS_TIERS?'BONUS BANK':'TIER '+(t+1);
+  $('passBar').style.width=Math.min(100,into/need*100)+'%';$('passPk').textContent=into+'/'+need;
+  let html='';
+  for(let i=1;i<=PASS_TIERS;i++){
+    const r=passReward(i),done=passClaimed.includes(i),ready=!done&&t>=i;
+    html+=`<div class="prow${done?' done':ready?' ready':''}${r.big?' big':''}" id="tier-${i}"><span class="tn">${i}</span><span class="rw">${r.label}<span class="rs">${r.sub}</span></span>
+      <button class="claim" data-t="${i}" ${ready?'':'disabled'}>${done?'CLAIMED':ready?'CLAIM':(i*PUCKS_PER_TIER)+' pucks'}</button></div>`;
+  }
+  const b=bonusReady();
+  html+=`<div class="prow${b?' ready':''} big"><span class="tn">+</span><span class="rw">Bonus bank<span class="rs">Star drop every ${BONUS_PUCKS} pucks after tier ${PASS_TIERS}</span></span>
+    <button class="claim" data-t="0" ${b?'':'disabled'}>${b?'CLAIM ('+b+')':'after tier 30'}</button></div>`;
+  const tr=$('passTrack');tr.innerHTML=html;
+  // scroll to the first tier that isn't claimed yet
+  const first=tr.querySelector('.prow.ready')||tr.querySelector('.prow:not(.done)');
+  if(first&&tr.scrollTo)tr.scrollTop=first.offsetTop-tr.offsetTop-6;
+}
+/* ---------- Trophy Road ----------
+   Prizes at trophy milestones (30 trophies = 1 win). Arena unlocks sit on the road as markers.
+   Already past a milestone? It's waiting to be claimed. */
+const ROAD=[
+  {at:30,type:'gold',n:75},{at:60,type:'drop',min:0},{at:90,type:'cards',n:5},{at:120,type:'drop',min:1},
+  {at:150,type:'emote'},{at:180,type:'gold',n:100},{at:210,type:'cards',n:8},{at:240,type:'drop',min:2},
+  {at:270,type:'gold',n:150},{at:300,type:'emote'},{at:330,type:'cards',n:10},{at:360,type:'gold',n:200},
+  {at:400,type:'drop',min:3},{at:450,type:'emote'},{at:480,type:'gold',n:250},{at:510,type:'drop',min:2},
+  {at:540,type:'cards',n:12},{at:600,type:'drop',min:4},{at:660,type:'emote'},{at:720,type:'gold',n:500},
+  {at:810,type:'cards',n:15},{at:900,type:'drop',min:4}];
+const DROP_NAMES=['Star drop','Super Rare+ star drop','Epic+ star drop','Mythic+ star drop','Legendary star drop'];
+let roadClaimed=[];
+function roadLabel(r){
+  if(r.type==='gold')return[r.n+' gold','Spend on upgrades'];
+  if(r.type==='cards')return[r.n+' player cards','For a random player you own'];
+  if(r.type==='emote')return['New emote','One you don\'t have yet'];
+  return[DROP_NAMES[r.min],r.min>=4?'Guaranteed new legend':r.min>=2?'Could hold a new emote':'Gold, cards and more'];
+}
+const roadReady=()=>ROAD.filter(r=>trophies>=r.at&&!roadClaimed.includes(r.at)).length;
+function claimRoad(at){
+  const r=ROAD.find(x=>x.at===at);if(!r||trophies<at||roadClaimed.includes(at))return;
+  roadClaimed.push(at);audio();
+  if(r.type==='gold'){gold+=r.n;tone(880,.2,'triangle',.06,1320);toast('+'+r.n+' GOLD','small',900)}
+  else if(r.type==='cards'){const id=pick1(owned);progOf(id).copies+=r.n;tone(660,.2,'triangle',.06,990);toast('+'+r.n+' '+cardById(id).name.split(' ').slice(-1)[0].toUpperCase()+' CARDS','small',1200)}
+  else if(r.type==='emote'){
+    const pool=EMOTES.filter(e=>!emotes.includes(e.id));
+    if(pool.length){const e=pick1(pool);emotes.push(e.id);toast('NEW EMOTE: '+e.tx.toUpperCase(),'small',1500);tone(1046,.2,'triangle',.06,1568)}
+    else{gold+=150;toast('+150 GOLD','small',900)} // already own every emote
+  }else{saveProgress();showDrop(r.min)}
+  saveProgress();renderRoad();renderArenas();
+}
+function renderRoad(){
+  const next=ROAD.find(r=>r.at>trophies),prev=[...ROAD].reverse().find(r=>r.at<=trophies);
+  const lo=prev?prev.at:0,hi=next?next.at:lo||1;
+  $('roadNextLbl').textContent=next?'NEXT PRIZE AT '+next.at:'ROAD COMPLETE';
+  $('roadBar').style.width=(next?Math.min(100,(trophies-lo)/Math.max(1,hi-lo)*100):100)+'%';$('roadTr').textContent=trophies;
+  // prizes and arena unlocks, in trophy order
+  const rows=[...ROAD.map(r=>({at:r.at,r})),...ARENAS.slice(1).map((a,i)=>({at:a.need,a,i:i+2}))].sort((x,y)=>x.at-y.at||(x.a?-1:1));
+  $('roadTrack').innerHTML=rows.map(x=>{
+    if(x.a)return`<div class="prow arena${trophies>=x.at?' done':''}"><span class="tn tr">${x.at}</span><span class="rw">Arena ${x.i}: ${x.a.name}<span class="rs">${trophies>=x.at?'Unlocked':'Unlocks here'}</span></span></div>`;
+    const[l,sub]=roadLabel(x.r),done=roadClaimed.includes(x.at),ready=!done&&trophies>=x.at,big=x.r.type==='drop'||x.r.type==='emote';
+    return`<div class="prow${done?' done':ready?' ready':''}${big?' big':''}"><span class="tn tr">${x.at}</span><span class="rw">${l}<span class="rs">${sub}</span></span>
+      <button class="claim rclaim" data-at="${x.at}" ${ready?'':'disabled'}>${done?'CLAIMED':ready?'CLAIM':x.at+' trophies'}</button></div>`}).join('');
+  const tr=$('roadTrack'),first=tr.querySelector('.prow.ready')||tr.querySelector('.prow:not(.done)');
+  if(first&&tr.scrollTo)tr.scrollTop=first.offsetTop-tr.offsetTop-6;
+}
+function paintRoadBtns(){
+  const r=roadReady();
+  $('roadBtn').textContent='Trophy Road \u00b7 '+trophies+' trophies'+(r?' \u00b7 '+r+' to claim':'');
+  $('roadBtn2').hidden=!r;$('roadBtn2').textContent='TROPHY ROAD \u00b7 '+r+' TO CLAIM';
+}
+/* ---------- daily quests ----------
+   3 quests a day from the pool below. 'game' quests must be done inside one game,
+   the rest add up across the day. Rewards: pucks for the Puck Pass, or a star drop (minimum rarity). */
+const QUESTS=[
+// every quest gives a star drop (drop = lowest rarity it can land on) plus a few pucks (5 max)
+  {id:'early',text:'Score in the first 10 seconds',n:1,reward:{drop:2,pucks:5}},
+  {id:'top',text:'Score a top-shelf goal',n:1,reward:{drop:0,pucks:3}},
+  {id:'backhand',text:'Score on a backhand',n:1,reward:{drop:0,pucks:3}},
+  {id:'onetimer',text:'Score a one-timer',n:1,reward:{drop:0,pucks:3}},
+  {id:'breakaway',text:'Score on a breakaway',n:1,reward:{drop:0,pucks:4}},
+  {id:'hattrick',text:'Score 3 goals in one game',n:1,reward:{drop:1,pucks:5}},
+  {id:'assisted',text:'Score 3 goals off a teammate\'s pass',n:3,reward:{drop:0,pucks:4}},
+  {id:'beck',text:'Score a goal with Connor Beck',n:1,reward:{drop:0,pucks:2}},
+  {id:'hit',text:'Land 5 big hits',n:5,reward:{drop:0,pucks:2}},
+  {id:'steal',text:'Poke the puck away 8 times',n:8,reward:{drop:0,pucks:2}},
+  {id:'faceoff',text:'Win 10 faceoffs',n:10,reward:{drop:0,pucks:2}},
+  {id:'save',text:'Make 10 saves with your goalie',n:10,reward:{drop:0,pucks:2}},
+  {id:'goal',text:'Score 6 goals',n:6,reward:{drop:0,pucks:4}},
+  {id:'win',text:'Win 2 games',n:2,reward:{drop:0,pucks:3}},
+  {id:'shutout',text:'Win without allowing a goal',n:1,reward:{drop:2,pucks:5}}
+];
+const questById=id=>QUESTS.find(q=>q.id===id);
+let questsDay='',quests=[];
+function ensureQuests(){
+  if(questsDay===today()&&quests.length)return;
+  const pool=QUESTS.slice().sort(()=>Math.random()-.5);
+  quests=pool.slice(0,3).map(q=>({id:q.id,prog:0,claimed:false}));questsDay=today();saveProgress();
+}
+const rewardLabel=r=>['STAR DROP','SUPER RARE+ DROP','EPIC+ DROP','MYTHIC+ DROP','LEGENDARY DROP'][r.drop]+' · +'+r.pucks+' PUCKS';
+function questEvent(id,n){
+  if(netRole)return; // friend games are unranked
+  ensureQuests();
+  for(const q of quests){
+    if(q.id!==id||q.claimed)continue;const def=questById(id);if(q.prog>=def.n)continue;
+    q.prog=Math.min(def.n,q.prog+(n||1));
+    if(q.prog>=def.n){toast('QUEST DONE','small',1100);pbp(`Quest complete: ${def.text}.`,1);tone(1046,.15,'triangle',.05,1568)}
+  }
+  saveProgress();
+}
+function claimQuest(i){
+  const q=quests[i];if(!q||q.claimed)return;const def=questById(q.id);if(q.prog<def.n)return;
+  q.claimed=true;audio();
+  pucks+=Math.min(5,def.reward.pucks||0);saveProgress();showDrop(def.reward.drop);
+  renderQuests();renderArenas();
+}
+function renderQuests(){
+  ensureQuests();
+  const html=quests.map((q,i)=>{const d=questById(q.id),done=q.prog>=d.n;
+    return`<div class="q${q.claimed?' done':''}"><span class="qt">${d.text}<span class="qr" style="display:block;text-align:left">${rewardLabel(d.reward)}</span></span><span></span>
+      <span class="qbar"><span class="bar"><i style="width:${q.prog/d.n*100}%"></i></span>${q.prog}/${d.n}</span>
+      <span class="qbtn">${q.claimed?'<span class="qreset">Claimed</span>':done?`<button class="claim qclaim" data-q="${i}">CLAIM</button>`:''}</span></div>`}).join('');
+  $('questList').innerHTML=html;$('questList2').innerHTML=html;
+}
+function renderArenas(){
+  renderQuests();
+  $('trophyCount').textContent=trophies;$('goldCount').textContent=gold;
+  paintRoadBtns();
+  {const r=passReady();$('passBtn').textContent='Puck Pass · Tier '+tierOf()+'/'+PASS_TIERS+(r?' · '+r+' to claim':'')}
+  const inDeck=Object.values(deck).filter(Boolean).length;
+  $('deckBtn').textContent='Your deck · '+owned.length+'/'+CARDS.length+' legends'+(inDeck?' · '+inDeck+' equipped':'');
+  $('dropLine').textContent=lastDropDay===today()?'Star drop opened today. Next one tomorrow.':'Win a game today to earn your daily star drop.';
+  $('arenaList').innerHTML=ARENAS.map((a,i)=>{const open=trophies>=a.need;
+    return`<button class="arena" id="arena-${i}" data-i="${i}" aria-pressed="${i===arenaIdx}" ${open?'':'disabled'}>
+      <span class="num">${i+1}</span><span class="nm">${a.name}<span class="sub">${a.sub}</span></span>
+      <span class="tag">${open?(i===arenaIdx?'SELECTED':'CPU LV '+CPU_LV[i]):a.need+' TO UNLOCK'}</span></button>`}).join('');
+}
+
+function togglePause(){
+  if(netRole){$('pauseOv').hidden=!$('pauseOv').hidden;return} // an online game can't be paused
+  if(phase==='paused'){phase=pausedFrom;$('pauseOv').hidden=true;return}
+  if(['play','faceoff','goal','stop','so','soWait'].includes(phase)){pausedFrom=phase;phase='paused';charging=false;$('pauseOv').hidden=false}
+}
+
+/* ---------- loop ---------- */
+function update(dt){
+  time+=dt;shake=Math.max(0,shake-dt*2.2);flash=Math.max(0,flash-dt*.9);
+  for(const s of all){s.cd-=dt;s.poke-=dt;s.chk-=dt;s.dekeCd-=dt;s.bhWin-=dt;s.deke=Math.max(0,s.deke-dt);s.spin=Math.max(0,(s.spin||0)-dt);if(s.mich>0){s.mich-=dt;s.dvx=s.dvy=0;if(s.mich<=0){s.mich=0;michShoot(s)}}if(s.bombT>0){s.bombT-=dt;if(s.bombT<=0){s.bombT=0;withP(netOn()?s.team:0,()=>bombFire(s))}}s.pokeT=Math.max(0,s.pokeT-dt);s.lungeT=Math.max(0,s.lungeT-dt)}
+  switchLock-=dt;slot[1].switchLock-=dt;
+  readInput();
+  if(phase==='faceoff'){
+    fo.t+=dt;
+    if(!fo.dropped&&fo.t>=fo.dropAt){fo.dropped=true;fo.dropT=fo.t;noise(.04,.4,2600);if(fo.early)fo.cpuT=.05}
+    if(netOn()){ // two humans: whoever reacts first; if nobody does, the one who wasn't early gets it
+      if(fo.dropped&&!fo.done&&fo.t-fo.dropT>1.2)winFaceoff(fo.early&&!fo.early2?1:fo.early2&&!fo.early?0:(Math.random()<.5?0:1));
+    }else if(fo.dropped&&!fo.done&&fo.t-fo.dropT>=fo.cpuT)winFaceoff(1);
+  }
+  else if(phase==='stop'){phaseT-=dt;stepPhysics(dt);if(phaseT<=0)faceoff(false,stopDot)}
+  else if(phase==='goal'){phaseT-=dt;stepPhysics(dt);if(phaseT<=0){if(period>=2)endGame();else faceoff()}}
+  else if(phase==='so')soUpdate(dt);
+  else if(phase==='soWait'){phaseT-=dt;stepPhysics(dt);if(phaseT<=0)soAdvance()}
+  else if(phase==='play'){
+    clock-=dt;if(clock<=0){clock=0;updateHud();endPeriod();return}
+    controlTeam(dt);if(netOn())withP(1,()=>controlTeam(dt));
+    const py0=puck.y;
+    detectBreakaway();humanThink();if(netOn())withP(1,humanThink);aiThink(dt);goalieThink(dt);stepPhysics(dt);
+    checkOffside(py0);checkIcing();
+  }
+  // facing
+  for(const s of skaters){
+    let tx=null,ty=null;
+    const hin=s===getHuman(0)?inputOf(0):netOn()&&s===getHuman(1)?inputOf(1):null;
+    if(hin&&hyp(hin.x,hin.y)>.2&&phase==='play'){const m=hyp(hin.x,hin.y);tx=hin.x/m;ty=hin.y/m}
+    else{const sp=hyp(s.vx,s.vy);if(sp>3){tx=s.vx/sp;ty=s.vy/sp}}
+    if(tx!==null){const k=Math.min(1,dt*10);s.fx+=(tx-s.fx)*k;s.fy+=(ty-s.fy)*k;const m=hyp(s.fx,s.fy)||1;s.fx/=m;s.fy/=m}
+  }
+  puck.trail.push({x:puck.x,y:puck.y});if(puck.trail.length>7)puck.trail.shift();
+  if(phase!=='menu')updateHud();
+}
+// the player in context picks up the puck carrier on their team, or switches to whoever is closest
+function controlTeam(dt){
+  const t=pctx;
+  if(charging){charge=Math.min(1,charge+dt/.7);if(puck.owner!==human)charging=false}
+  if(puck.owner&&puck.owner.team===t&&!puck.owner.goalie)human=puck.owner;
+  else if(switchLock<=0&&!(puck.passTo&&puck.passTo.team===t)){const nb=nearestSk(t,puck);if(nb&&(!human||(nb!==human&&dist(nb,puck)+5<dist(human,puck)))){human=nb;switchLock=.6}}
+}
+let lastT=0,slowmo=0,vig=0,leadX=0,leadY=0,showRoles=true;
+try{showRoles=localStorage.getItem('slapshot-roles')!=='off'}catch(_){}
+function frame(t){
+  const rdt=clamp(lastT?(t-lastT)/1000:0,0,.05);lastT=t;
+  // slow motion when a breakaway closes in on the goalie
+  slowmo=0;
+  if(breakaway&&(phase==='play'||phase==='so')&&!reduceMotion){const o=breakaway.s;if(hyp(50-o.x,atkY(o.team)-o.y)<18)slowmo=1}
+  vig=0; // no screen darkening
+  const dt=rdt*(slowmo?.8:1);
+  if(netRole==='guest'){time+=rdt;guestTick(rdt)}
+  else if(phase!=='paused'&&phase!=='inter'&&phase!=='end'&&phase!=='menu')update(dt);
+  else{time+=dt}
+  if(netRole==='host')hostTick();
+  if(netRole||!$('netBadge').hidden)paintBadge();
+  // calm camera: follows the puck with only a small look-ahead that eases in and out, so turning never jerks it
+  const lk=Math.min(1,rdt*2);
+  leadY+=((puck.owner?clamp(puck.owner.vy*.12,-4,4):0)-leadY)*lk;leadX+=((puck.owner?clamp(puck.owner.vx*.08,-3,3):0)-leadX)*lk;
+  const viewH=ch/sc;const tgt=puck.y+leadY;
+  camY+=(tgt-camY)*Math.min(1,rdt*3);
+  camY=viewH>=H+6?H/2:clamp(camY,viewH/2-3,H-viewH/2+3);
+  const viewW=cw/sc,tgx=puck.x+leadX;
+  camX+=(tgx-camX)*Math.min(1,rdt*2.5);
+  camX=viewW>=W+6?W/2:clamp(camX,viewW/2-3,W-viewW/2+3);
+  ox=cw/2-camX*sc;
+  draw();requestAnimationFrame(frame);
+}
+
+/* ---------- HUD ---------- */
+let lastHas=null,toastTimer=0;
+const fmt=s=>{s=Math.ceil(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function updateHud(){
+  $('s0').textContent=score[myT];$('s1').textContent=score[1-myT];
+  $('per').textContent=PNAMES[Math.min(period,3)-1];
+  $('clk').textContent=period===3&&so?so.res[myT].filter(Boolean).length+'–'+so.res[1-myT].filter(Boolean).length:fmt(clock);
+  const has=!!(puck&&human&&puck.owner===human);
+  const mode=has?(isBH(human)&&!charging?'bh':'shoot'):'check';
+  if(mode!==lastHas){lastHas=mode;const b=$('bShoot');b.innerHTML=mode==='bh'?'BACK<br>HAND':mode==='shoot'?'SHOOT':'CHECK';
+    b.classList.toggle('def',!has);b.classList.toggle('bh',mode==='bh');$('bPass').textContent=has?'PASS':'SWITCH';$('bSkill').textContent=has?'DEKE':'POKE'}
+  if(human){
+    const lbl=has?'DEKE':'POKE';if($('bSkill').textContent!==lbl)$('bSkill').textContent=lbl;
+    $('bSkill').classList.toggle('cool',has?(human.dekeCd||0)>0:(human.poke||0)>0);
+    const pl=has?'PASS':'SWITCH';if($('bPass').textContent!==pl)$('bPass').textContent=pl;
+    paintMoves(has);
+  }
+  $('bShoot').style.setProperty('--c',charging?charge.toFixed(3):0);
+  {const hasP=!!(puck&&human&&puck.owner===human);
+   const ks=hasP?(charging?'winding up':isBH(human)?'backhand':'shoot'):'check',
+     kk=hasP?'deke':'poke',kp=hasP?'pass':'switch';
+   if($('kShoot').textContent!==ks)$('kShoot').textContent=ks;if($('kSkill').textContent!==kk)$('kSkill').textContent=kk;if($('kPass').textContent!==kp)$('kPass').textContent=kp}
+}
+// which move buttons exist (unlocked) and which can be used right now
+function paintMoves(has){
+  const ids=[['mvSaucer',2],['mvSpin',3],['mvBomb',4],['mvMich',5]];let any=false;
+  const busy=human&&(human.mich>0||human.bombT>0);
+  for(const[id,n]of ids){const el=$(id),open=movesOpen(n);if(el.hidden===open)el.hidden=!open;any=any||open;if(!open)continue;
+    let ok=has&&!busy&&(phase==='play'||phase==='so');
+    if(n===2)ok=ok&&phase==='play';if(n===3)ok=ok&&!(human.dekeCd>0);if(n===4)ok=ok&&!(human.cd>0);if(n===5)ok=ok&&michSpot(human);
+    el.classList.toggle('off',!ok);el.classList.toggle('ready',ok&&n===5);}
+  const row=$('moves');if(row.hidden===any)row.hidden=!any;
+  for(const[k,n]of[['kmv2',2],['kmv3',3],['kmv4',4],['kmv5',5]]){const el=$(k);if(el&&el.hidden===movesOpen(n))el.hidden=!movesOpen(n)}
+}
+function toast(text,cls,ms,team){
+  if(netRole==='host'){if(!netMute)netEv.push(['t',text,cls||'',ms||1000,team||'']);text=text.replace(/^CPU /,'FRIEND ')}
+  const el=$('toast');el.textContent=text;el.className='on '+(cls||'')+' '+(team||'');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.className='',ms||1000);
+}
+
+/* ---------- rendering ---------- */
+const cv=$('cv'),ctx=cv.getContext('2d');
+let cw=300,ch=400,sc=3,ox=0,dpr=1,iceGrad=null,camX=50,lockedW=0;const ZOOM=1.4;
+const scratches=Array.from({length:160},()=>({x:rnd(2,98),y:rnd(2,198),a:rnd(0,Math.PI),l:rnd(1.5,6)}));
+function resize(){
+  const r=$('stage').getBoundingClientRect(),nd=Math.min(2,window.devicePixelRatio||1);
+  const nw=Math.max(50,r.width),nh=Math.max(50,r.height),pw=Math.round(nw*nd),ph=Math.round(nh*nd);
+  const sizeChanged=cv.width!==pw||cv.height!==ph;
+  dpr=nd;cw=nw;ch=nh;
+  if(sizeChanged){cv.width=pw;cv.height=ph} // only when the size really changes: resizing wipes the canvas
+  // zoomed-in broadcast camera: about 3/4 of the rink width on screen, follows the puck both ways.
+  // The zoom follows the screen's WIDTH, so a phone's toolbar sliding in and out (height only) never zooms the rink.
+  if(!lockedW||Math.abs(cw-lockedW)>2){lockedW=cw;sc=cw/107*ZOOM} // the rink never zooms unless the screen gets wider or narrower (e.g. turning the phone)
+  ox=(cw-W*sc)/2;
+  const A=ARENAS[arenaIdx];iceGrad=ctx.createLinearGradient(0,0,0,H);iceGrad.addColorStop(0,A.ice[0]);iceGrad.addColorStop(.5,A.ice[1]);iceGrad.addColorStop(1,A.ice[0]);
+  if(sizeChanged&&skaters.length)try{draw()}catch(_){} // repaint right away: no black frame
+}
+function rrect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function circ(c,x,y,r){c.beginPath();c.arc(x,y,r,0,Math.PI*2)}
+function drawRink(c){
+  rrect(c,-2.6,-2.6,W+5.2,H+5.2,CR+2.6);c.fillStyle='#1c2634';c.fill();
+  rrect(c,-1.2,-1.2,W+2.4,H+2.4,CR+1.2);c.fillStyle='#f6f8fa';c.fill();
+  rrect(c,0,0,W,H,CR);c.fillStyle=iceGrad;c.fill();
+  c.save();rrect(c,0,0,W,H,CR);c.clip();
+  c.strokeStyle='rgba(110,140,165,.10)';c.lineWidth=.12;c.beginPath();
+  for(const s of scratches){c.moveTo(s.x,s.y);c.lineTo(s.x+Math.cos(s.a)*s.l,s.y+Math.sin(s.a)*s.l)}c.stroke();
+  // creases
+  c.fillStyle='rgba(90,160,235,.32)';c.strokeStyle=COL.red;c.lineWidth=.22;
+  c.beginPath();c.moveTo(44,GT);c.arc(50,GT,6,0,Math.PI);c.closePath();c.fill();c.stroke();
+  c.beginPath();c.moveTo(56,GB);c.arc(50,GB,6,Math.PI,Math.PI*2);c.closePath();c.fill();c.stroke();
+  // lines
+  c.fillStyle=COL.blue;c.fillRect(0,74.4,W,1.2);c.fillRect(0,124.4,W,1.2);
+  c.fillStyle=COL.red;c.fillRect(0,99.4,W,1.2);c.fillRect(0,GT-.15,W,.3);c.fillRect(0,GB-.15,W,.3);
+  c.fillStyle='rgba(255,255,255,.75)';for(let x=1;x<W;x+=4)c.fillRect(x,99.75,1.6,.5);
+  // circles
+  c.lineWidth=.3;c.strokeStyle=COL.blue;circ(c,50,100,15);c.stroke();c.fillStyle=COL.blue;circ(c,50,100,.6);c.fill();
+  c.strokeStyle=COL.red;c.fillStyle=COL.red;
+  for(const[x,y]of[[22,31],[78,31],[22,169],[78,169]]){circ(c,x,y,15);c.stroke();circ(c,x,y,1);c.fill();
+    c.beginPath();c.moveTo(x-1.5,y-2.5);c.lineTo(x-1.5,y-1);c.lineTo(x-4,y-1);c.moveTo(x+1.5,y-2.5);c.lineTo(x+1.5,y-1);c.lineTo(x+4,y-1);
+    c.moveTo(x-1.5,y+2.5);c.lineTo(x-1.5,y+1);c.lineTo(x-4,y+1);c.moveTo(x+1.5,y+2.5);c.lineTo(x+1.5,y+1);c.lineTo(x+4,y+1);c.stroke()}
+  for(const[x,y]of[[22,80],[78,80],[22,120],[78,120]]){circ(c,x,y,1);c.fill()}
+  c.fillStyle='rgba(42,95,208,.16)';c.font='600 11px Teko, Impact, sans-serif';c.textAlign='center';c.textBaseline='middle';upText(c,ARENAS[arenaIdx].mark,50,flipView?98.8:101.2);
+  c.restore();
+  rrect(c,.3,.3,W-.6,H-.6,CR-.3);c.strokeStyle=ARENAS[arenaIdx].kick;c.lineWidth=.55;c.stroke();
+  NETS.forEach((n,i)=>drawNet(c,n,i));
+}
+function drawNet(c,n,i){
+  const x=n.x0,y=n.y0,w=n.x1-n.x0,h=n.y1-n.y0;
+  if(lampNet===i&&flash>0){c.fillStyle=`rgba(255,60,50,${.5*flash})`;circ(c,50,(n.y0+n.y1)/2,9*flash+4);c.fill()}
+  c.fillStyle='rgba(255,255,255,.92)';c.fillRect(x,y,w,h);
+  c.strokeStyle='rgba(120,130,145,.55)';c.lineWidth=.1;c.beginPath();
+  for(let a=x+.8;a<x+w;a+=.8){c.moveTo(a,y);c.lineTo(a,y+h)}for(let b=y+.8;b<y+h;b+=.8){c.moveTo(x,b);c.lineTo(x+w,b)}c.stroke();
+  c.strokeStyle=COL.red;c.lineWidth=.5;c.lineJoin='round';c.beginPath();
+  if(n.fs>0){c.moveTo(x,n.front);c.lineTo(x,y);c.lineTo(x+w,y);c.lineTo(x+w,n.front)}else{c.moveTo(x,n.front);c.lineTo(x,y+h);c.lineTo(x+w,y+h);c.lineTo(x+w,n.front)}
+  c.stroke();
+}
+function drawSkater(c,s){
+  const col=s.team?COL.away:COL.home,dark=s.team?COL.awayD:COL.homeD;let px=-s.fy,py=s.fx;
+  if(s.goalie){
+    const fly=s.fly>0;
+    c.fillStyle='#f3f5f7';c.beginPath();c.ellipse(s.x,s.y,fly?3.3:2.7,fly?1.15:1.45,0,0,Math.PI*2);c.fill();c.strokeStyle=dark;c.lineWidth=.28;c.stroke();
+    c.fillStyle=col;circ(c,s.x,s.y,1.35);c.fill();
+    c.fillStyle='#2a2a2a';c.fillRect(s.x-2.4+(s.team?0:3.7),s.y-.5,1.1,1);
+    c.strokeStyle='#22201c';c.lineWidth=.4;c.beginPath();c.moveTo(s.x+1.2,s.y+s.fy*1);c.lineTo(s.x-.6,s.y+s.fy*2.3);c.stroke();
+  }else{
+    if(s.spin>0){ // draw the skater mid-spin: rotate facing for this frame only
+      const fx=s.fx,fy=s.fy,a=(1-s.spin/SPIN_T)*Math.PI*2*s.dekeSide;
+      s.fx=fx*Math.cos(a)-fy*Math.sin(a);s.fy=fx*Math.sin(a)+fy*Math.cos(a);
+      const sp=s.spin;s.spin=0;drawSkater(c,s);s.spin=sp;s.fx=fx;s.fy=fy;
+      c.strokeStyle='rgba(255,182,39,.7)';c.lineWidth=.3;c.beginPath();c.arc(s.x,s.y,3.4,0,Math.PI*2*(1-s.spin/SPIN_T));c.stroke();return;
+    }
+    c.strokeStyle='#22201c';c.lineWidth=.42;c.lineCap='round';c.beginPath();
+    if(s.deke>0||s.bhWin>0){const hs=s.dekeSide;px*=hs;py*=hs} // stick follows the puck to the backhand side
+    const L=3+(s.pokeT>0?Math.sin(s.pokeT/.25*Math.PI)*2.8:0),bx=s.x+s.fx*L+px*.9,by=s.y+s.fy*L+py*.9;c.moveTo(s.x+px*1.1,s.y+py*1.1);c.lineTo(bx,by);c.lineTo(bx-px*.9+s.fx*.15,by-py*.9+s.fy*.15);c.stroke();
+    c.fillStyle=col;circ(c,s.x,s.y,SR);c.fill();c.strokeStyle=dark;c.lineWidth=.3;c.stroke();
+    const a=Math.atan2(s.fy,s.fx)+Math.PI;c.strokeStyle='rgba(255,255,255,.9)';c.lineWidth=.35;c.beginPath();c.arc(s.x,s.y,1.45,a-1,a+1);c.stroke();
+  }
+  c.fillStyle=s.team?'#2a1216':'#0e1a33';circ(c,s.x+s.fx*.3,s.y+s.fy*.3,.95);c.fill();
+}
+// text stays upright when the view is flipped for the online friend
+function upText(c,str,x,y){if(!flipView){c.fillText(str,x,y);return}c.save();c.translate(x,y);c.rotate(Math.PI);c.fillText(str,0,0);c.restore()}
+function draw(){
+  const c=ctx;c.setTransform(dpr,0,0,dpr,0,0);c.fillStyle=COL.arena;c.fillRect(0,0,cw,ch);
+  const ag=c.createRadialGradient(cw/2,ch/2,10,cw/2,ch/2,Math.max(cw,ch)*.75);ag.addColorStop(0,ARENAS[arenaIdx].glow);ag.addColorStop(1,'rgba(0,0,0,0)');c.fillStyle=ag;c.fillRect(0,0,cw,ch);
+  let sx=0,sy=0;if(shake>0&&!reduceMotion){sx=rnd(-1,1)*shake*4;sy=rnd(-1,1)*shake*4}
+  if(flipView)c.setTransform(-dpr*sc,0,0,-dpr*sc,dpr*(cw/2+camX*sc+sx),dpr*(ch/2+camY*sc+sy));
+  else c.setTransform(dpr*sc,0,0,dpr*sc,dpr*(ox+sx),dpr*(ch/2-camY*sc+sy));
+  drawRink(c);
+  // shadows
+  c.fillStyle='rgba(20,45,80,.16)';for(const s of all){c.beginPath();c.ellipse(s.x+.5,s.y+.7,s.goalie?2.8:2.3,s.goalie?1.7:2.1,0,0,Math.PI*2);c.fill()}
+  // human ring
+  if(human&&phase!=='menu'){c.strokeStyle=COL.lamp;c.lineWidth=.45;circ(c,human.x,human.y,3.2);c.stroke()}
+  // puck
+  const sp=hyp(puck.vx,puck.vy);
+  const preDrop=phase==='faceoff'&&!fo.dropped;
+  const lift=preDrop?2.6:(puck.owner&&puck.owner.mich>0)?1.4:(puck.high||puck.saucer)&&!puck.owner?1.7:0;
+  if(phase==='faceoff'){ // dot ring: tightens while you wait, flashes gold on the drop
+    const k=fo.dropped?1:Math.min(1,fo.t/fo.dropAt);c.lineWidth=.35;
+    c.strokeStyle=fo.dropped?COL.lamp:'rgba(255,255,255,.7)';circ(c,fo.dot[0],fo.dot[1],fo.dropped?3:6-k*2.5);c.stroke();
+  }
+  const drawPuck=()=>{
+    if(((!puck.owner&&sp>35)||(puck.owner&&puck.owner.deke>0))&&puck.trail.length>1){
+      c.strokeStyle=lift?'rgba(255,182,39,.55)':'rgba(20,20,30,.22)';c.lineWidth=1.1;c.lineCap='round';c.beginPath();
+      c.moveTo(puck.trail[0].x,puck.trail[0].y-lift);for(const p of puck.trail)c.lineTo(p.x,p.y-lift);c.stroke()}
+    if(lift){c.fillStyle='rgba(20,30,45,.28)';circ(c,puck.x,puck.y,PR*.9);c.fill()}
+    const pr=PR*(lift?1.3:1);
+    c.fillStyle='#111317';circ(c,puck.x,puck.y-lift,pr);c.fill();c.fillStyle='rgba(255,255,255,.25)';circ(c,puck.x-.2,puck.y-lift-.25,pr*.38);c.fill();
+  };
+  if(!lift)drawPuck();
+  // bodies
+  [...all].sort((a,b)=>a.y-b.y).forEach(s=>drawSkater(c,s));
+  // legends wear a gold trim; the one you control shows their name
+  c.strokeStyle=COL.lamp;c.lineWidth=.3;
+  for(const s of all)if(s.card){circ(c,s.x,s.y,(s.goalie?2.9:SR)+.5);c.stroke()}
+  if(human&&human.card&&phase!=='menu'){c.font='700 2.2px "Barlow Condensed", "Arial Narrow", sans-serif';c.textAlign='center';c.textBaseline='middle';
+    c.fillStyle='rgba(12,20,34,.75)';const nm=human.card.name.split(' ').slice(-1)[0].toUpperCase(),w=c.measureText(nm).width+1.4;rrect(c,human.x-w/2,human.y+3.6,w,2.7,1);c.fill();
+    c.fillStyle=COL.lamp;upText(c,nm,human.x,human.y+5)}
+  if(lift)drawPuck(); // a high shot flies above the players
+  // teammate jobs, so you can see why each one is where it is
+  if(showRoles&&phase!=='menu'){
+    c.font='700 2.4px "Barlow Condensed", "Arial Narrow", sans-serif';c.textAlign='center';c.textBaseline='middle';
+    for(const s of skaters){
+      if(s.team!==0||s===human||!s.role||s.role==='PUCK')continue;
+      const txt=s.call?'OPEN!':s.role,w=c.measureText(txt).width+1.6,y=s.y-4.4;
+      c.fillStyle=s.call?COL.lamp:'rgba(12,20,34,.78)';rrect(c,s.x-w/2,y-1.5,w,3,1.2);c.fill();
+      c.fillStyle=s.call?'#1d1405':'#fff';upText(c,txt,s.x,y+.15);
+    }
+  }
+  if(human&&phase!=='menu'){
+    c.fillStyle=COL.lamp;c.beginPath();c.moveTo(human.x,human.y-3.6);c.lineTo(human.x-1.3,human.y-5.6);c.lineTo(human.x+1.3,human.y-5.6);c.closePath();c.fill();
+    if(charging){c.strokeStyle='#fff';c.lineWidth=.6;c.beginPath();c.arc(human.x,human.y,4,-Math.PI/2,-Math.PI/2+charge*Math.PI*2);c.stroke()}
+  }
+  c.setTransform(dpr,0,0,dpr,0,0);
+  if(flash>0&&!reduceMotion){c.fillStyle=`rgba(255,70,60,${flash*.18})`;c.fillRect(0,0,cw,ch)}
+  if(vig>0){const v=c.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*.4,cw/2,ch/2,Math.max(cw,ch)*.75);v.addColorStop(0,'rgba(5,8,14,0)');v.addColorStop(1,`rgba(5,8,14,${(.35*vig).toFixed(3)})`);c.fillStyle=v;c.fillRect(0,0,cw,ch)}
+}
+
+/* ---------- input ---------- */
+function readInput(){
+  if(joy.id!==null){input.x=joy.x;input.y=joy.y;return}
+  let x=0,y=0;
+  if(keys.ArrowLeft||keys.KeyA)x--;if(keys.ArrowRight||keys.KeyD)x++;if(keys.ArrowUp||keys.KeyW)y--;if(keys.ArrowDown||keys.KeyS)y++;
+  const m=hyp(x,y)||1;input.x=x/m;input.y=y/m;
+}
+// any button during a faceoff = swipe at the puck. Too early and the linesman throws you out.
+function faceoffPress(){
+  if(phase!=='faceoff'||fo.done)return;audio();
+  const k=pctx?'early2':'early';
+  if(!fo.dropped){if(!fo[k]){fo[k]=true;
+    if(pctx)netEv.push(['tg','TOO EARLY','small',700]);else{netMute=true;toast('TOO EARLY','small',700);netMute=false;tone(200,.12,'square',.04)}}return}
+  if(!fo[k])winFaceoff(pctx);
+}
+function winFaceoff(w){
+  fo.done=true;phase='play';
+  const c=skaters.find(s=>s.team===w&&s.i===0);
+  puck.x=fo.dot[0];puck.y=fo.dot[1];take(c);
+  // draw it back to a teammate: the player aims with the pad, default straight back
+  let hx=0,hy=w?-1:1;
+  {const inp=inputOf(w);if((w===0||netOn())&&hyp(inp.x,inp.y)>.3){hx=inp.x;hy=inp.y}}
+  c.cd=0;quietPass=true;pass(c,hx,hy,false);quietPass=false;
+  sfx('pass');toast(w===0?'WON THE DRAW':'LOST THE DRAW','small',650);
+  if(w===0)questEvent('faceoff');
+  lastPbp=-9;pbp(`${N(c)} wins the draw${puck.passTo?` back to ${N(puck.passTo)}`:''}.`,1);
+}
+function pressShoot(){if(netRole==='guest'){audio();guestButton('sd');return}if(phase==='faceoff'){faceoffPress();return}if((phase!=='play'&&phase!=='so')||!human)return;audio();
+  if(puck.owner===human){
+    if(time-(human.recvT||-9)<.45&&human.cd<=0){shoot(human,.9,input.x,wantsHigh());puck.bh=true;toast('ONE-TIMER','small',600)}
+    else if(isBH(human)&&human.cd<=0)backhand(human,input.x,wantsHigh());else{charging=true;charge=0}}else humanCheck()}
+function releaseShoot(){if(netRole==='guest'){guestButton('su');return}if(charging){charging=false;if((phase==='play'||phase==='so')&&human&&puck.owner===human)shoot(human,charge,input.x,wantsHigh())}}
+function pressSkill(){if(netRole==='guest'){audio();guestButton('k');return}if(phase==='faceoff'){faceoffPress();return}if((phase!=='play'&&phase!=='so')||!human)return;audio();if(puck.owner===human){charging=false;humanDeke()}else humanPoke()}
+function pressPass(){if(netRole==='guest'){audio();guestButton('p');return}if(phase==='faceoff'){faceoffPress();return}if(phase!=='play')return;if(!human)return;audio();
+  if(puck.owner===human){charging=false;pass(human,input.x,input.y,false)}else switchPlayer()}
+function releasePass(){} // a pass happens on press; kept so older friend clients don't break
+
+/* ---------- arena moves: one button each ----------
+   SAUCER   pass that floats over the other team's sticks
+   SPIN     spin-o-rama: can't be checked mid-spin, freezes a nearby goalie, backhand stays live after
+   BOMB     a short wind-up, then a slapshot about 40% harder that the goalie reads late
+   MICHIGAN from low beside their net: lift it on the blade and tuck it in high */
+function canAct(){return(phase==='play'||phase==='so')&&human&&puck.owner===human&&!(human.mich>0)&&!(human.bombT>0)}
+function moveSaucer(){if(netRole==='guest'){audio();guestButton('m2');return}
+  if(phase!=='play'||!hasMove(2)||!canAct())return;audio();charging=false;pass(human,input.x,input.y,false,true)}
+function moveSpin(){if(netRole==='guest'){audio();guestButton('m3');return}
+  if(!hasMove(3)||!canAct()||human.dekeCd>0||human.spin>0)return;audio();charging=false;
+  const s=human,proj=input.x*-s.fy+input.y*s.fx;s.dekeSide=Math.abs(proj)>.3?Math.sign(proj):(s.dekeSide||1);spinMove(s)}
+function moveBomb(){if(netRole==='guest'){audio();guestButton('m4');return}
+  if(!hasMove(4)||!canAct()||human.cd>0)return;audio();charging=false;
+  human.bombT=.45;noise(.3,.25,500);tone(160,.45,'sawtooth',.04,320);toast('BOMB INCOMING','small',500)}
+function bombFire(s){ // runs as that player, when the wind-up finishes
+  if(puck.owner!==s||(phase!=='play'&&phase!=='so'))return;
+  shoot(s,1,input.x,wantsHigh());puck.vx*=1.35;puck.vy*=1.35;puck.bomb=true;shake=Math.max(shake,.45);noise(.16,.6,900);
+  toast('THE BOMB!','small',800);pbp(pick1([`${N(s)} unloads THE BOMB!`,`What a cannon from ${N(s)}!`]),3)}
+function moveMich(){if(netRole==='guest'){audio();guestButton('m5');return}
+  if(!hasMove(5)||!canAct())return;
+  if(!michSpot(human)){if(pctx===0)toast('GET LOW BESIDE THEIR NET','small',900);return}
+  audio();charging=false;michigan(human)}
+
+const stick=$('stick'),knob=$('knob');
+function moveJ(e){const r=stick.getBoundingClientRect(),R=r.width*.38;let dx=(e.clientX-(r.left+r.width/2))/R,dy=(e.clientY-(r.top+r.height/2))/R;const m=hyp(dx,dy);if(m>1){dx/=m;dy/=m}joy.x=dx;joy.y=dy;knob.style.transform=`translate(${dx*R}px,${dy*R}px)`}
+stick.addEventListener('pointerdown',e=>{e.preventDefault();audio();try{stick.setPointerCapture(e.pointerId)}catch(_){}joy.id=e.pointerId;moveJ(e)});
+stick.addEventListener('pointermove',e=>{if(e.pointerId===joy.id)moveJ(e)});
+const endJ=e=>{if(e.pointerId!==joy.id)return;joy.id=null;joy.x=joy.y=0;input.x=input.y=0;knob.style.transform=''};
+stick.addEventListener('pointerup',endJ);stick.addEventListener('pointercancel',endJ);
+function bindBtn(el,down,up){
+  el.addEventListener('pointerdown',e=>{e.preventDefault();try{el.setPointerCapture(e.pointerId)}catch(_){}el.classList.add('pressed');down()});
+  const u=()=>{el.classList.remove('pressed');if(up)up()};el.addEventListener('pointerup',u);el.addEventListener('pointercancel',u);
+  el.addEventListener('contextmenu',e=>e.preventDefault());
+}
+bindBtn($('bShoot'),pressShoot,releaseShoot);bindBtn($('bPass'),pressPass,releasePass);bindBtn($('bSkill'),pressSkill,null);
+bindBtn($('mvSaucer'),moveSaucer,null);bindBtn($('mvSpin'),moveSpin,null);bindBtn($('mvBomb'),moveBomb,null);bindBtn($('mvMich'),moveMich,null);
+const typingIn=e=>{const t=e.target;return!!t&&(t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA'||t.isContentEditable)};
+const SHOOT_K=['Space','KeyJ'],PASS_K=['KeyE','KeyK'],SKILL_K=['ShiftLeft','ShiftRight','KeyQ','KeyL'];
+const visible=id=>{const el=$(id);return!!el&&!el.hidden};
+// Enter = the main button of whatever screen is open
+function primaryAction(){
+  if(visible('dropOv')){if(visible('starBtn'))tapStar();else if(visible('dropDone'))$('dropDone').click();return true}
+  for(const[ov,btn]of[['interOv','contBtn'],['endOv','againBtn'],['pauseOv','resumeBtn'],['deckOv','deckDone'],['passOv','passDone'],['roadOv','roadDone'],['voiceOv','vDone']])
+    if(visible(ov)&&visible(btn)){$(btn).click();return true}
+  if(visible('menuOv')){$('playBtn').click();return true}
+  return false;
+}
+// Esc = back out of a menu screen, otherwise pause
+function backAction(){
+  for(const[ov,btn]of[['deckOv','deckDone'],['passOv','passDone'],['roadOv','roadDone'],['voiceOv','vDone'],['netOv','netCancel'],['profOv','profClose']])
+    if(visible(ov)){if(visible(btn))$(btn).click();return}
+  togglePause();
+}
+addEventListener('keydown',e=>{
+  if(typingIn(e)){if(e.code==='Escape'){e.target.blur();backAction()}return} // typing a username or code: no game controls
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code))e.preventDefault();
+  if(e.repeat)return;keys[e.code]=true;
+  if(e.code==='Enter'||e.code==='NumpadEnter'){primaryAction();return}
+  if(e.code==='Escape'||e.code==='KeyP'){backAction();return}
+  if(SHOOT_K.includes(e.code))pressShoot();
+  if(PASS_K.includes(e.code))pressPass();
+  if(SKILL_K.includes(e.code))pressSkill();
+  if(e.code==='KeyZ')moveSaucer();if(e.code==='KeyX')moveSpin();if(e.code==='KeyC')moveBomb();if(e.code==='KeyV')moveMich();
+  if(e.code==='KeyT'){emoteOpen()?closeEmotePicker():openEmotePicker()}
+  if(emoteOpen()&&/^Digit[1-9]$/.test(e.code)){const id=emotes[+e.code.slice(5)-1];if(id)sendEmote(id)}
+});
+addEventListener('keyup',e=>{keys[e.code]=false;if(SHOOT_K.includes(e.code))releaseShoot();if(PASS_K.includes(e.code))releasePass()});
+// mouse on the rink: left = shoot (hold to wind up), right = pass / switch, middle = deke / poke
+cv.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')return;e.preventDefault();audio();
+  if(e.button===0)pressShoot();else if(e.button===2)pressPass();else if(e.button===1)pressSkill()});
+cv.addEventListener('pointerup',e=>{if(e.pointerType!=='mouse')return;if(e.button===0)releaseShoot();else if(e.button===2)releasePass()});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+// phones: block pinch zoom and double-tap zoom while playing (iOS ignores the page's zoom settings otherwise)
+document.addEventListener('gesturestart',e=>e.preventDefault());
+document.addEventListener('touchstart',e=>{if(e.touches&&e.touches.length>1&&e.cancelable&&!typingIn(e))e.preventDefault()},{passive:false}); // two fingers = never a zoom
+addEventListener('wheel',e=>{if(e.ctrlKey&&e.cancelable)e.preventDefault()},{passive:false}); // trackpad pinch / Ctrl+scroll on a computer
+addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['Equal','Minus','NumpadAdd','NumpadSubtract','Digit0','Numpad0'].includes(e.code))e.preventDefault()});
+// if a browser zooms anyway, reset its zoom setting so it springs back to normal size
+(function(){const vv=window.visualViewport;if(!vv)return;let t=0;
+  vv.addEventListener('resize',()=>{if(vv.scale>1.01){clearTimeout(t);t=setTimeout(()=>{const m=document.querySelector('meta[name=viewport]');if(!m)return;const c=m.getAttribute('content')||'';
+    m.setAttribute('content','width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover');setTimeout(()=>m.setAttribute('content',c.includes('maximum-scale')?c:'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'),400)},150)}})})();
+document.addEventListener('gesturechange',e=>e.preventDefault());
+document.addEventListener('dblclick',e=>{if(!typingIn(e))e.preventDefault()});
+let lastTouchEnd=0;
+document.addEventListener('touchend',e=>{const now=Date.now(),onCtl=e.target&&e.target.closest&&e.target.closest('button,a,input,select,label,.stick');
+  if(!onCtl&&now-lastTouchEnd<320&&e.cancelable)e.preventDefault();lastTouchEnd=now},{passive:false}); // buttons keep quick taps; their CSS already stops zoom
+document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1&&e.cancelable)e.preventDefault()},{passive:false});
+addEventListener('blur',()=>{for(const k in keys)keys[k]=false;releaseShoot()});
+
+/* ---------- menus ---------- */
+$('dropBtn').addEventListener('click',openDrop);
+$('starBtn').addEventListener('click',tapStar);
+for(const id of['questList','questList2'])$(id).addEventListener('click',e=>{const b=e.target.closest('.qclaim');if(b)claimQuest(+b.dataset.q)});
+$('dropDone').addEventListener('click',()=>{$('dropOv').hidden=true;drop=null;if(!$('passOv').hidden)renderPass();if(!$('roadOv').hidden)renderRoad()});
+const openPass=()=>{$('passOv').hidden=false;renderPass()};
+const openRoad=()=>{$('roadOv').hidden=false;renderRoad()};
+$('roadBtn').addEventListener('click',openRoad);$('roadBtn2').addEventListener('click',openRoad);
+$('roadDone').addEventListener('click',()=>{$('roadOv').hidden=true;paintRoadBtns();renderArenas()});
+$('roadTrack').addEventListener('click',e=>{const b=e.target.closest('.rclaim');if(b&&!b.disabled)claimRoad(+b.dataset.at)});
+$('passBtn').addEventListener('click',openPass);$('passBtn2').addEventListener('click',openPass);
+$('passDone').addEventListener('click',()=>{$('passOv').hidden=true;const r=passReady();$('passBtn2').hidden=!r;$('passBtn2').textContent='PUCK PASS · '+r+' TO CLAIM';renderArenas()});
+$('passTrack').addEventListener('click',e=>{const b=e.target.closest('.claim');if(b&&!b.disabled)claimTier(+b.dataset.t)});
+$('deckBtn').addEventListener('click',()=>{renderDeck();$('deckOv').hidden=false});
+$('deckDone').addEventListener('click',()=>{$('deckOv').hidden=true;applyDeck()});
+$('cardList').addEventListener('click',e=>{
+  const u=e.target.closest('.upBtn');if(u&&!u.disabled){upgrade(u.dataset.id,u.dataset.a);return}
+  const b=e.target.closest('.eqBtn');if(b)toggleCard(b.dataset.id)});
+$('arenaList').addEventListener('click',e=>{const b=e.target.closest('.arena');if(b&&!b.disabled)setArena(+b.dataset.i)});
+$('playBtn').addEventListener('click',newGame);
+$('againBtn').addEventListener('click',()=>{if(netRole==='host'){netStartGame();return}if(netRole==='guest')return;newGame()});
+$('menuBtn').addEventListener('click',()=>{if(netRole){leaveNet('');return}$('endOv').hidden=true;renderArenas();$('menuOv').hidden=false;setup();faceoff(true);phase='menu'});
+$('pauseBtn').addEventListener('click',togglePause);
+$('resumeBtn').addEventListener('click',togglePause);
+$('quitBtn').addEventListener('click',()=>{if(netRole){$('pauseOv').hidden=true;leaveNet('');return}$('pauseOv').hidden=true;$('soBar').hidden=true;so=null;setup();faceoff(true);phase='menu';score=[0,0];period=1;clock=PERIOD;updateHud();renderArenas();$('menuOv').hidden=false});
+$('rolesBtn').textContent='Roles: '+(showRoles?'on':'off');
+$('rolesBtn').addEventListener('click',()=>{showRoles=!showRoles;$('rolesBtn').textContent='Roles: '+(showRoles?'on':'off');try{localStorage.setItem('slapshot-roles',showRoles?'on':'off')}catch(_){}});
+/* announcer settings: voice, pitch, speed */
+function fillVoices(){
+  const sel=$('vSel'),vs=allVoices(),cur=pickVoice();
+  sel.innerHTML=vs.length?vs.map(v=>`<option value="${v.name.replace(/"/g,'&quot;')}" ${cur&&v.name===cur.name?'selected':''}>${v.name} (${v.lang})</option>`).join(''):'<option>No voices on this device</option>';
+}
+function openVoice(){fillVoices();$('vOn').textContent='Announcer: '+(voiceOn?'on':'off');$('vPitch').value=vPitch;$('vRate').value=vRate;
+  $('vPitchV').textContent=(+vPitch).toFixed(2);$('vRateV').textContent=(+vRate).toFixed(2);$('voiceOv').hidden=false}
+try{speechSynthesis.onvoiceschanged=()=>{if(!$('voiceOv').hidden)fillVoices()}}catch(_){}
+$('voiceBtn').addEventListener('click',openVoice);$('voiceBtn2').addEventListener('click',openVoice);
+$('vOn').addEventListener('click',()=>{voiceOn=!voiceOn;$('vOn').textContent='Announcer: '+(voiceOn?'on':'off');if(!voiceOn)try{speechSynthesis.cancel()}catch(_){}saveVoice()});
+$('vSel').addEventListener('change',e=>{vName=e.target.value;saveVoice()});
+$('vPitch').addEventListener('input',e=>{vPitch=+e.target.value;$('vPitchV').textContent=vPitch.toFixed(2);saveVoice()});
+$('vRate').addEventListener('input',e=>{vRate=+e.target.value;$('vRateV').textContent=vRate.toFixed(2);saveVoice()});
+$('vTest').addEventListener('click',()=>{try{speechSynthesis.cancel();say(pick1(['Beck is in alone... he shoots... HE SCORES!','Big hit by Okafor! What a play!','Glove save! Robbed him!']),3)}catch(_){}});
+$('vDone').addEventListener('click',()=>{$('voiceOv').hidden=true});
+let feedOn=true;try{feedOn=localStorage.getItem('slapshot-feed')!=='off'}catch(_){}
+const paintFeed=()=>{$('pbp').classList.toggle('off',!feedOn);$('feedBtn').textContent='Text feed: '+(feedOn?'on':'off')};paintFeed();
+$('feedBtn').addEventListener('click',()=>{feedOn=!feedOn;paintFeed();try{localStorage.setItem('slapshot-feed',feedOn?'on':'off')}catch(_){}});
+$('soundBtn').addEventListener('click',()=>{soundOn=!soundOn;$('soundBtn').textContent='Sound: '+(soundOn?'on':'off')});
+$('contBtn').addEventListener('click',()=>{$('interOv').hidden=true;audio();sfx('whistle');const f=interNext;interNext=null;if(f)f();updateHud()});
+
+/* ---------- online 1v1 (PeerJS) ----------
+   Works when the game is hosted on its own site (GitHub Pages, Netlify). The host's phone runs the
+   game and streams it to the friend ~20 times a second; the friend streams back their pad and buttons.
+   Host = team 0 (blue). Friend = team 1 (red), shown the rink from their own end. */
+let friendName='';
+const PEER_PREFIX='slapshot3v3-',PEER_URL=window.SLAPSHOT_PEER_URL||'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+/* Most phones can link directly, but on mobile data and many school/home routers they can't, and
+   the game then has to bounce through a relay ("TURN") server. We offer two free relays:
+   PeerJS's own and Open Relay (its no-signup "static auth": a short-lived login made from its public secret). */
+async function iceServers(){
+  const list=[{urls:'stun:stun.l.google.com:19302'},
+    {urls:'turn:us-0.turn.peerjs.com:3478',username:'peerjs',credential:'peerjsp'}];
+  try{
+    const user=Math.floor(Date.now()/1000+12*3600)+':slapshot',enc=new TextEncoder();
+    const key=await crypto.subtle.importKey('raw',enc.encode('openrelayprojectsecret'),{name:'HMAC',hash:'SHA-1'},false,['sign']);
+    const sig=new Uint8Array(await crypto.subtle.sign('HMAC',key,enc.encode(user)));
+    const credential=btoa(String.fromCharCode(...sig));
+    list.push({urls:['turn:staticauth.openrelay.metered.ca:80','turn:staticauth.openrelay.metered.ca:443?transport=tcp','turns:staticauth.openrelay.metered.ca:443?transport=tcp'],username:user,credential});
+  }catch(_){}
+  return list;
+}
+async function peerOpts(){return Object.assign({config:{iceServers:await iceServers()},debug:0},window.SLAPSHOT_PEER||{})}
+let peerLoad=null,lastSnap=0,lastIn=0,lastInSent='';
+function loadPeer(){
+  if(window.Peer)return Promise.resolve();
+  if(peerLoad)return peerLoad;
+  peerLoad=new Promise((res,rej)=>{const sc=document.createElement('script');sc.src=PEER_URL;sc.onload=()=>window.Peer?res():rej();sc.onerror=()=>{peerLoad=null;rej()};document.head.appendChild(sc)});
+  return peerLoad;
+}
+const netMsg=t=>{$('netMsg').textContent=t};
+const NO_NET='Online play couldn\'t connect here. It works when the game is opened from its own website (like GitHub Pages), not inside Claude.';
+function netSend(m){try{if(netConn&&netConn.open)netConn.send(m)}catch(_){}}
+function closeNet(){try{netConn&&netConn.close()}catch(_){}try{netPeer&&netPeer.destroy()}catch(_){}netConn=null;netPeer=null}
+function makeCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let c='';for(let i=0;i<5;i++)c+=a[Math.floor(Math.random()*a.length)];return c}
+// what this device brings to a friend game: its own deck with upgrades
+function deckPayload(){
+  const sk=['F1','F2','D'].map(k=>{const c=cardById(deck[k]);if(!c)return null;
+    const attr={};for(const a of['spd','shot','acc','hands','def','accel'])attr[a]=(c.boost[a]||1)*(1+PER_LV*lvOf(c.id,a));
+    return{id:c.id,name:c.name,num:c.num,attr}});
+  const gc=cardById(deck.G),g={greact:MY_GOALIE.greact,glat:MY_GOALIE.glat,gctl:MY_GOALIE.gctl};
+  if(gc){g.greact*=(gc.boost.greact||1)*Math.pow(1-PER_LV,lvOf(gc.id,'greact'));g.glat*=(gc.boost.glat||1)*(1+PER_LV*lvOf(gc.id,'glat'));g.gctl=Math.min(.95,g.gctl*(gc.boost.gctl||1)*(1+PER_LV*lvOf(gc.id,'gctl')))}
+  return{sk,g,gname:gc?gc.name:'',gid:gc?gc.id:null,spin:spinUnlocked(),arenas:unlockedCount()};
+}
+function cleanDeck(d){ // the friend's deck arrives over the network: keep numbers in a sane range
+  const n=(v,a,b,dflt)=>Number.isFinite(+v)?clamp(+v,a,b):dflt;
+  const sk=[0,1,2].map(i=>{const p=d&&d.sk&&d.sk[i];if(!p)return null;const attr={};
+    for(const a of['spd','shot','acc','hands','def','accel'])attr[a]=n(p.attr&&p.attr[a],.8,2.2,1);
+    return{name:String(p.name||'').slice(0,28),num:n(p.num,0,99,0)|0,attr}});
+  const g=d&&d.g||{};
+  return{sk,g:{greact:n(g.greact,.04,.3,.11),glat:n(g.glat,8,30,15.5),gctl:n(g.gctl,.2,.95,.65)},gname:String(d&&d.gname||'').slice(0,28),spin:!!(d&&d.spin),arenas:clamp((d&&d.arenas)|0,1,ARENAS.length),
+    ids:[0,1,2].map(i=>{const p=d&&d.sk&&d.sk[i];return p&&cardById(p.id)?p.id:null}),gid:cardById(d&&d.gid)?d.gid:null};
+}
+function setBoard(){
+  const g=netRole==='guest',on=!!netRole;
+  $('tn0').textContent=(curUser||'YOU').toUpperCase().slice(0,10);$('tn1').textContent=on?(friendName||'FRIEND').toUpperCase().slice(0,10):'CPU';
+  $('bt0').className='team '+(g?'away':'home');$('bt1').className='team '+(g?'home':'away');
+  $('son0').textContent='YOU';$('son1').textContent=on?'FRIEND':'CPU';
+  $('son0').className='soName '+(g?'away':'home');$('son1').className='soName '+(g?'home':'away');
+}
+function hideAllOv(){['roadOv','profOv','menuOv','endOv','interOv','pauseOv','soBar','netOv','deckOv','passOv','voiceOv','dropOv'].forEach(i=>$(i).hidden=true)}
+
+// ----- host -----
+/* Hosting has to survive the host leaving the game to text the code: phones pause background pages,
+   which drops the connection to the matchmaking server. So the host reconnects as soon as it can,
+   keeps the same code (also across a reload, for 30 minutes), and stays hosting from the menu. */
+let hostCode='',hostTries=0;
+function rememberedCode(){try{const r=JSON.parse(localStorage.getItem('slapshot-hostcode')||'null');if(r&&Date.now()-r.at<30*60e3&&/^[A-Z0-9]{5}$/.test(r.code))return r.code}catch(_){}return''}
+function rememberCode(c){try{c?localStorage.setItem('slapshot-hostcode',JSON.stringify({code:c,at:Date.now()})):localStorage.removeItem('slapshot-hostcode')}catch(_){}}
+function hostingNow(){return!!(netPeer&&hostCode&&!netRole&&!netPeer.destroyed)}
+function paintHosting(){
+  const h=hostingNow();
+  $('friendBtn').textContent=h?'Hosting \u00b7 code '+hostCode+' \u00b7 waiting':'Play a friend online';
+  $('netCancel').textContent=h?'Back (keep hosting)':'Back';$('stopHost').hidden=!h;$('copyCode').hidden=!h;
+}
+async function hostGame(reuse){
+  netMsg('Connecting...');$('hostBtn').disabled=true;
+  try{await loadPeer()}catch(_){netMsg(NO_NET);$('hostBtn').disabled=false;return}
+  closeNet();
+  const code=reuse||rememberedCode()||makeCode();let peer;
+  const opts=await peerOpts();
+  try{peer=new Peer(PEER_PREFIX+code,opts)}catch(_){netMsg(NO_NET);$('hostBtn').disabled=false;return}
+  netPeer=peer;hostCode='';
+  setTimeout(()=>{if(netPeer===peer&&!peer.open&&!netRole){netMsg(NO_NET);$('hostBtn').disabled=false}},9000);
+  peer.on('open',()=>{hostCode=code;hostTries=0;rememberCode(code);$('codeBox').hidden=false;$('myCode').textContent=code;
+    $('hostMsg').textContent='Waiting for your friend to join...';netMsg('Send this code to your friend. You can leave the game to text it; it stays open.');paintHosting()});
+  peer.on('disconnected',()=>{ // lost the matchmaking server (phone paused the page): get back on with the same code
+    if(netPeer!==peer||peer.destroyed)return;$('hostMsg').textContent='Reconnecting...';
+    setTimeout(()=>{if(netPeer===peer&&!peer.destroyed&&peer.disconnected)try{peer.reconnect()}catch(_){}},800)});
+  peer.on('error',e=>{
+    const t=e&&e.type;
+    if(t==='unavailable-id'){ // the code is still held by our own old connection: try it again briefly, then pick a new one
+      if(++hostTries<3){setTimeout(()=>hostGame(code),1500)}else{hostTries=0;rememberCode('');hostGame(makeCode())}return}
+    if(t==='network'||t==='server-error'||t==='socket-error'||t==='socket-closed'){if(netPeer===peer&&!peer.destroyed){$('hostMsg').textContent='Reconnecting...';setTimeout(()=>{try{if(peer.disconnected)peer.reconnect()}catch(_){}},1500)}return}
+    if(!netRole){netMsg(NO_NET);$('hostBtn').disabled=false}});
+  peer.on('connection',conn=>{
+    if(netConn&&netConn.open){try{conn.close()}catch(_){}return} // one friend at a time
+    netConn=conn;
+    $('hostMsg').textContent='Your friend found the game. Linking your phones...';
+    conn.on('open',()=>{rememberCode('');$('hostMsg').textContent='Linked! Starting...'});
+    conn.on('data',m=>hostData(m));
+    // a link that fails before the game starts must NOT end hosting: the friend just tries again
+    const dropped=()=>{if(netConn!==conn)return;netConn=null;
+      if(netRole)leaveNet('Your friend left the game.');else $('hostMsg').textContent='Waiting for your friend to join...'};
+    conn.on('close',dropped);conn.on('error',dropped);
+  });
+}
+/* Netcode. The data channel is set to "unreliable, unordered" (like a game, not a file transfer) so a late
+   packet never holds up newer ones. Anything that must arrive anyway is made reliable on top:
+   - events (calls, sounds, banners) carry a number and are repeated in every snapshot for ~0.8 s;
+   - the friend's button presses carry a number and are re-sent until the host's snapshot says it has them;
+   - a new game / rematch is announced by a game number inside every snapshot.
+   The friend draws other players ~90 ms in the past, smoothly between two snapshots, and draws
+   their OWN skater ahead of the host using their own pad, so moving feels immediate. */
+const SNAP_MS=33,INTERP_MS=90;
+let evSeq=0,evBuf=[],gameId=0,lastBtnSeq=0,guestTs=0;
+const BTN={sd:pressShoot,su:releaseShoot,k:pressSkill,p:pressPass,pu:releasePass,m2:moveSaucer,m3:moveSpin,m4:moveBomb,m5:moveMich};
+function hostData(m){
+  if(!m||typeof m!=='object')return;
+  if(m.t==='hello'){if(netRole==='host')return; // repeated hello: game already running
+    friendName=cleanName(m.name);guestDeck=cleanDeck(m.deck);guestSpin=guestDeck.spin;guestArenas=guestDeck.arenas;netRole='host';myT=0;lastBtnSeq=0;netStartGame();return}
+  if(netRole!=='host')return;
+  if(m.t==='in'){
+    const x=+m.x,y=+m.y;if(Number.isFinite(x)&&Number.isFinite(y)){const k=Math.min(1,hyp(x,y))/(hyp(x,y)||1);slot[1].input.x=x*k;slot[1].input.y=y*k}
+    if(Number.isFinite(+m.ts))guestTs=+m.ts;
+    if(+m.hp>0){const smp=performance.now()-m.hp;if(smp>0&&smp<3000)hostRtt+=(smp-hostRtt)*.15}
+    if(Array.isArray(m.b))for(const it of m.b){if(!Array.isArray(it))continue;const seq=+it[0],code=String(it[1]),f=BTN[code];
+      if(seq>lastBtnSeq){lastBtnSeq=seq;if(f)withP(1,f);else if(code.startsWith('e:')&&emoteById(code.slice(2)))showEmote(1,code.slice(2))}}
+    return}
+  if(m.t==='bye')leaveNet('Your friend left the game.');
+}
+function netStartGame(){
+  savedArena=arenaIdx;hideAllOv();setBoard();clearPbp();
+  D=Object.assign(arenaD(2),{lvl:0,shoot:1,pokeMul:1,fo:.25}); // even ground for both
+  score=[0,0];shots=[0,0];period=1;clock=PERIOD;so=null;soWinner=-1;
+  gameId=(gameId%1e6)+1;evBuf=[];netEv=[];
+  setup();faceoff();
+  updateHud();audio();sfx('whistle');
+  pbp(`Welcome to ${ARENAS[arenaIdx].name}. You against your friend.`,2);
+}
+/* Snapshots are kept small (about a quarter of the old size): positions to 0.1, speeds whole numbers,
+   facing as an angle, timers only while they're running. Names, numbers and the arena only ride along
+   every 10th snapshot. Small matters most when the phones go through a relay server. */
+let snapN=0,hostRtt=0;
+function snapshot(){
+  const ents=[...roster,...rosterG],now=performance.now(),r1=v=>Math.round((v||0)*10)/10,r2=v=>(v>0?Math.round(v*100)/100:0),r0=v=>Math.round(v||0);
+  for(const ev of netEv.splice(0))evBuf.push({seq:++evSeq,at:now,ev});
+  evBuf=evBuf.filter(x=>now-x.at<800);
+  const meta=snapN++%10===0?{a:arenaIdx,n:curUser,e:ents.map(s=>[s.num,s.card?s.card.name:0])}:0;
+  return{t:'s',ts:Math.round(now),pt:guestTs,ab:lastBtnSeq,g:gameId,meta,rt:Math.round(hostRtt),
+    end:phase==='end'?[score,shots,period]:0,
+    e:ents.map(s=>[r1(s.x),r1(s.y),Math.round(Math.atan2(s.fy,s.fx)*180/Math.PI),r0(s.vx),r0(s.vy),r2(s.deke),r2(s.spin),r2(s.fly),r2(s.pokeT),r2(s.bhWin),s.dekeSide,all.includes(s)?1:0,r1(Math.max(0,s.dekeCd)),r1(Math.max(0,s.poke))]),
+    p:[r1(puck.x),r1(puck.y),r0(puck.vx),r0(puck.vy),puck.high||puck.saucer?1:0,puck.owner?ents.indexOf(puck.owner):-1],
+    h:ents.indexOf(slot[1].human&&pctx===0?slot[1].human:null),
+    sc:score,sh:shots,pe:period,cl:r1(clock),ph:phase==='paused'?pausedFrom:phase,
+    fo:[fo.dropped?1:0,r1(fo.t),r1(fo.dropAt),fo.dot||[50,100]],
+    ln:lampNet,fl:r1(flash),so:so?so.res:null,ba:breakaway?ents.indexOf(breakaway.s):-1,
+    ch:slot[1].charging?r2(slot[1].charge):-1,ev:evBuf.map(x=>[x.seq,...x.ev])};
+}
+function hostTick(){
+  if(!netConn||!netConn.open)return;
+  const now=performance.now();if(now-lastSnap<SNAP_MS)return;lastSnap=now;
+  if(phase==='menu')return;
+  // if the link is backed up, skip this one rather than queue it: a late snapshot is worse than none
+  const dc=netConn.dataChannel;if(dc&&dc.bufferedAmount>16000){snapN++;return}
+  netSend(snapshot());
+}
+function netEnd(){
+  phase='end';$('soBar').hidden=true;
+  const how=period===3?'SO':period===2?'OT':'';
+  pbp(`That's the game! ${score[0]>score[1]?'You win':'The CPU wins'} ${Math.max(...score)}–${Math.min(...score)}${how==='SO'?' in the shootout':how==='OT'?' in overtime':''}.`,3);
+  netSend(snapshot()); // the end result also rides in every snapshot from now on
+  showNetEnd(score,shots,period);
+}
+function showNetEnd(sc,sh,pe){
+  const mine=sc[myT],theirs=sc[1-myT],how=pe===3?'SO':pe===2?'OT':'';
+  $('endKicker').textContent='Friend game'+(how?' / '+how:'');
+  $('endTitle').textContent=mine>theirs?'YOU WIN':'FRIEND WINS';
+  $('eS0').textContent=mine;$('eS1').textContent=theirs;$('eShots').textContent=sh[myT]+' – '+sh[1-myT];
+  $('endRewards').hidden=true;$('dropBtn').hidden=true;$('passBtn2').hidden=true;$('roadBtn2').hidden=true;$('unlockMsg').hidden=true;
+  $('againBtn').hidden=netRole==='guest';$('againBtn').textContent='REMATCH';$('netWait').hidden=netRole!=='guest';
+  $('menuBtn').textContent='Leave';$('endOv').hidden=false;
+}
+
+// ----- friend (guest) -----
+async function joinGame(){
+  // codes never use 0, O, 1 or I, so read look-alikes as the letters they must be
+  const code=$('joinCode').value.toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/[0O]/g,'Q').replace(/[1I]/g,'L');
+  if(code.length!==5){netMsg('Codes are 5 letters and numbers.');return}
+  $('joinCode').value=code;
+  netMsg('Connecting...');$('joinBtn').disabled=true;audio();
+  try{await loadPeer()}catch(_){netMsg(NO_NET);$('joinBtn').disabled=false;return}
+  closeNet();
+  const opts=await peerOpts();
+  let peer;try{peer=new Peer(opts)}catch(_){netMsg(NO_NET);$('joinBtn').disabled=false;return}
+  netPeer=peer;
+  setTimeout(()=>{if(netPeer===peer&&!peer.open){netMsg(NO_NET);$('joinBtn').disabled=false}},10000);
+  // the host may be reconnecting right now, so keep looking for a few seconds before giving up
+  let tries=0;
+  peer.on('error',e=>{
+    if(netPeer!==peer)return;
+    if(e&&e.type==='peer-unavailable'){
+      if(++tries<6){netMsg('Looking for that game... ('+tries+')');setTimeout(()=>{if(netPeer===peer&&!peer.destroyed&&netRole!=='guest')dial()},2000);return}
+      $('joinBtn').disabled=false;netMsg('Can\'t find game '+code+'. Check the code, and ask your friend to open the game so it\'s on their screen.');return}
+    $('joinBtn').disabled=false;netMsg(NO_NET)});
+  peer.on('open',dial);
+  function dial(){
+    const conn=peer.connect(PEER_PREFIX+code,{reliable:false,serialization:'json'});netConn=conn;
+    netMsg('Found the game. Linking your phones...');
+    const t0=Date.now(),watch=()=>{ // tell the player what's happening instead of spinning forever
+      if(netConn!==conn||conn.open||netRole==='guest')return;const w=(Date.now()-t0)/1000;
+      if(w>25){$('joinBtn').disabled=false;try{conn.close()}catch(_){}netConn=null;
+        netMsg('Your phones couldn\'t link up. This happens on some school wifi and mobile networks. Try both on the same wifi (or both on mobile data) and join again.');return}
+      if(w>8)netMsg('Still linking... going through a relay server, this can take up to 20 seconds.');
+      setTimeout(watch,1000)};setTimeout(watch,1000);
+    conn.on('error',()=>{if(netConn===conn&&!conn.open){netConn=null;$('joinBtn').disabled=false;netMsg('The link failed. Tap Join to try again.')}});
+    conn.on('open',()=>{netMsg('Connected! Starting...');gGid=null;
+      const hello=()=>{if(netConn!==conn||!conn.open||gGid!==null)return;conn.send({t:'hello',deck:deckPayload(),name:curUser});setTimeout(hello,700)};hello()});
+    conn.on('data',m=>guestData(m));
+    conn.on('close',()=>{if(netConn===conn&&netRole)leaveNet('The host left the game.')});
+  }
+}
+let gGid=null,snapBuf=[],lastEvSeq=0,btnSeq=0,btnQ=[],rtt=120,clockOff=null,endShownGid=null,gMeta=null,lastHostTs=0,arrJit=8,lastArr=0;
+function guestData(m){
+  if(!m||typeof m!=='object')return;
+  if(m.t==='s'){
+    if(m.meta)gMeta=m.meta;
+    if(m.g!==gGid){if(!m.meta)return;startGuestGame(m)} // a new game starts on the next snapshot that carries names
+    applySnap(m);return}
+  if(netRole!=='guest')return;
+  if(m.t==='bye')leaveNet('The host left the game.');
+}
+function startGuestGame(m){ // first snapshot of a new game (or a rematch)
+  friendName=cleanName(m.meta.n);
+  if(netRole!=='guest'){savedArena=arenaIdx}
+  netRole='guest';myT=1;flipView=true;gGid=m.g;snapBuf=[];endShownGid=null;
+  arenaIdx=clamp(m.meta.a|0,0,ARENAS.length-1);resize(); // look of the host's arena, not saved
+  hideAllOv();setBoard();clearPbp();so=null;score=[0,0];shots=[0,0];period=1;clock=PERIOD;setup();faceoff(true);phase='faceoff';camY=100;
+  for(const s of[...roster,...rosterG])s.tx=undefined;puck.tx=undefined;
+  $('joinBtn').disabled=false;updateHud();
+}
+function guestButton(code){ // numbered so a dropped packet can't lose a shot or a deke
+  btnQ.push([++btnSeq,code]);sendInput(true);
+}
+let lastInAt=0;
+function sendInput(force){
+  const now=performance.now();if(!force&&now-lastInAt<SNAP_MS)return;lastInAt=now;
+  // the input itself is tiny; skip it if the link is backed up (the next one carries the same buttons)
+  const dc=netConn&&netConn.dataChannel;if(!force&&dc&&dc.bufferedAmount>8000)return;
+  netSend({t:'in',x:Math.round(-input.x*100)/100,y:Math.round(-input.y*100)/100,ts:Math.round(now),hp:lastHostTs,b:btnQ.slice(-12)});
+}
+const SWAP_TOAST={'GOAL!':'FRIEND SCORES','TOP SHELF!':'FRIEND SCORES','CPU SCORES':'GOAL!','CPU ROOFS IT':'TOP SHELF!','BREAKAWAY!':'FRIEND BREAKAWAY','CPU BREAKAWAY':'BREAKAWAY!',
+  'ICING':'FRIEND ICING','CPU ICING':'ICING','OFFSIDE':'FRIEND OFFSIDE','CPU OFFSIDE':'OFFSIDE','YOUR SHOT':'FRIEND SHOOTS','CPU SHOOTS':'YOUR SHOT',
+  'WON THE DRAW':'LOST THE DRAW','LOST THE DRAW':'WON THE DRAW','SCORES!':'FRIEND SCORES'};
+function guestPbp(t){
+  return String(t).replace(/The CPU is/g,'\u0001').replace(/You're/g,'Your friend is').replace(/\u0001/g,"You're")
+    .replace(/The CPU wins/g,'\u0002').replace(/You win/g,'Your friend wins').replace(/\u0002/g,'You win')
+    .replace(/Icing on the CPU/g,'\u0003').replace(/^Icing\./,'Icing on your friend.').replace(/\u0003/g,'Icing');
+}
+function applySnap(m){
+  const ents=[...roster,...rosterG],now=performance.now();
+  // timing: host clock vs ours (lowest delay seen wins), and round trip from the echoed input time
+  if(Number.isFinite(+m.ts)){const off=now-m.ts;clockOff=clockOff===null||off<clockOff?off:clockOff+(off-clockOff)*.02}
+  if(+m.pt>0){const smp=now-m.pt;if(smp>0&&smp<3000)rtt+=(smp-rtt)*.1}
+  btnQ=btnQ.filter(b=>b[0]>(+m.ab||0)); // host has these presses
+  // unpack the compact form back into what the rest of the friend's code reads
+  if(Array.isArray(m.e))m.e=m.e.map((c,i)=>{if(!Array.isArray(c))return null;const ang=(+c[2]||0)*Math.PI/180,mt=gMeta&&gMeta.e&&gMeta.e[i];
+    return[+c[0],+c[1],Math.cos(ang),Math.sin(ang),+c[3]||0,+c[4]||0,+c[5]||0,+c[6]||0,+c[7]||0,+c[8]||0,+c[9]||0,c[10]||1,mt?mt[0]:0,mt?mt[1]:0,c[11],+c[12]||0,+c[13]||0]});
+  if(Number.isFinite(+m.ts))lastHostTs=+m.ts;
+  // how bumpy the connection is: smoothing delay grows on a jittery link and shrinks on a clean one
+  if(lastArr){const gap=now-lastArr;arrJit+=(Math.abs(gap-SNAP_MS)-arrJit)*.08}lastArr=now;
+  m.at=now;snapBuf.push(m);if(snapBuf.length>40)snapBuf.shift();
+  if(Array.isArray(m.e))m.e.forEach((a,i)=>{const s=ents[i];if(!s||!Array.isArray(a))return;
+    if(s.tx===undefined){s.x=a[0];s.y=a[1]}
+    s.tx=a[0];s.ty=a[1];s.fx=a[2];s.fy=a[3];s.vx=a[4];s.vy=a[5];s.deke=a[6];s.spin=a[7];s.fly=a[8];s.pokeT=a[9];s.bhWin=a[10];s.dekeSide=a[11]||1;
+    s.num=a[12];s.card=a[13]?{name:String(a[13])}:null;s.on=!!a[14];s.dekeCd=a[15];s.poke=a[16];s.snapT=time});
+  skaters=roster.filter(s=>s.on);goalies=rosterG.filter(s=>s.on);all=[...skaters,...goalies];
+  const p=m.p||[];if(puck.tx===undefined){puck.x=p[0];puck.y=p[1]}
+  puck.tx=p[0];puck.ty=p[1];puck.vx=p[2];puck.vy=p[3];puck.high=!!p[4];puck.owner=p[5]>=0?ents[p[5]]:null;puck.snapT=time;
+  human=m.h>=0?ents[m.h]:null;
+  score=m.sc||score;shots=m.sh||shots;period=m.pe||1;clock=+m.cl||0;phase=String(m.ph||'play');
+  if(Array.isArray(m.fo)){fo.dropped=!!m.fo[0];fo.t=m.fo[1];fo.dropAt=m.fo[2]||1;fo.dot=m.fo[3];fo.done=phase!=='faceoff'}
+  lampNet=m.ln;flash=Math.max(flash,m.fl||0);
+  if(m.so){so={res:m.so};if($('soBar').hidden)$('soBar').hidden=false;renderSO()}else if(so){so=null;$('soBar').hidden=true}
+  breakaway=m.ba>=0&&ents[m.ba]?{s:ents[m.ba]}:null;
+  charging=m.ch>=0;charge=Math.max(0,m.ch);
+  const evs=(m.ev||[]).filter(e=>Array.isArray(e)&&e[0]>lastEvSeq).sort((a,b)=>a[0]-b[0]);
+  for(const e of evs){lastEvSeq=e[0];const ev=e.slice(1);
+    if(ev[0]==='t'){const tx=SWAP_TOAST[ev[1]]||ev[1].replace(/^CPU /,'');toast(tx,ev[2],ev[3],ev[4]==='home'?'away':ev[4]==='away'?'home':'')}
+    else if(ev[0]==='tg')toast(ev[1],ev[2],ev[3]);
+    else if(ev[0]==='p'){lastPbp=-9;pbp(guestPbp(ev[1]),ev[2])}
+    else if(ev[0]==='s')sfx(ev[1]);
+    else if(ev[0]==='h'){horn();shake=Math.max(shake,.6)}
+    else if(ev[0]==='em'){if(ev[1]!==myT)showEmote(ev[1],ev[2])} // our own emote already showed when we tapped
+  }
+  if(m.end&&endShownGid!==m.g){endShownGid=m.g;phase='end';$('soBar').hidden=true;showNetEnd(m.end[0],m.end[1],m.end[2])}
+}
+// position of entity i at host time t, smoothly between the two snapshots around it
+function interpAt(i,t,isPuck){
+  const B=snapBuf;if(!B.length)return null;
+  const get=(sn)=>isPuck?sn.p:(sn.e&&sn.e[i]);
+  let a=null,b=null;
+  for(let k=B.length-1;k>=0;k--){if(B[k].ts<=t){a=B[k];b=B[k+1]||null;break}}
+  if(!a){const f=get(B[0]);return f?[f[0],f[1]]:null}
+  const A=get(a);if(!A)return null;
+  if(!b){const ex=Math.min(.12,(t-a.ts)/1000);return[A[0]+A[2+(isPuck?0:2)]*ex,A[1]+A[3+(isPuck?0:2)]*ex]} // run a little past the newest
+  const Bv=get(b);if(!Bv)return[A[0],A[1]];
+  if(hyp(Bv[0]-A[0],Bv[1]-A[1])>15)return[Bv[0],Bv[1]]; // teleport (faceoff, shootout reset): don't slide
+  const k=clamp((t-a.ts)/Math.max(1,b.ts-a.ts),0,1);return[A[0]+(Bv[0]-A[0])*k,A[1]+(Bv[1]-A[1])*k];
+}
+function guestTick(dt){
+  shake=Math.max(0,shake-dt*2.2);flash=Math.max(0,flash-dt*.9);
+  readInput();sendInput(false);
+  if(clockOff!==null&&snapBuf.length){
+    const now=performance.now(),hostNow=now-clockOff,rt=hostNow-clamp(40+arrJit*2.5,50,170),ents=[...roster,...rosterG];
+    ents.forEach((s,i)=>{if(s.tx===undefined)return;const q=interpAt(i,rt,false);if(q){s.x=q[0];s.y=q[1]}});
+    const pq=interpAt(0,rt,true);if(pq){puck.x=pq[0];puck.y=pq[1]}
+    // your own skater: newest host position, pushed forward by your current pad for the time it takes to get there
+    const me=human,newest=snapBuf[snapBuf.length-1];
+    if(me&&me.tx!==undefined&&!me.goalie&&(phase==='play'||phase==='so')){
+      const lead=clamp((hostNow-newest.ts)/1000+rtt/2000,0,.25),sp=maxSp(me),ix=-input.x,iy=-input.y;
+      const px=me.tx+(me.vx*.4+ix*sp*.6)*lead,py=me.ty+(me.vy*.4+iy*sp*.6)*lead;
+      const kk=1-Math.exp(-dt*22);me.px=me.px===undefined?px:me.px+(px-me.px)*kk;me.py=me.py===undefined?py:me.py+(py-me.py)*kk;
+      if(hyp(me.px-me.tx,me.py-me.ty)>12){me.px=me.tx;me.py=me.ty}
+      me.x=clamp(me.px,2,98);me.y=clamp(me.py,2,198);
+    }else if(me){me.px=undefined}
+    // glide instead of snapping when a skater changes how it's drawn (e.g. you switch players)
+    for(const s of all){
+      if(s.rx===undefined||hyp(s.x-s.rx,s.y-s.ry)>15){s.rx=s.x;s.ry=s.y;continue}
+      const dx=s.x-s.rx,dy=s.y-s.ry,lim=(hyp(s.vx,s.vy)+10)*dt*1.6+.15;
+      if(hyp(dx,dy)>lim){const k=1-Math.exp(-dt*14);s.rx+=dx*k;s.ry+=dy*k}else{s.rx=s.x;s.ry=s.y}
+      s.x=s.rx;s.y=s.ry;
+    }
+    if(me&&puck.owner===me&&puck.tx!==undefined&&me.tx!==undefined){puck.x=me.x+(puck.tx-me.tx);puck.y=me.y+(puck.ty-me.ty)} // the puck stays on your stick
+  }
+  puck.trail.push({x:puck.x,y:puck.y});if(puck.trail.length>7)puck.trail.shift();
+  if(phase!=='menu'&&phase!=='end')updateHud();
+}
+let netRoute='',routeAt=0;
+async function checkRoute(){ // are the phones linked directly, or bouncing through a relay?
+  try{const pc=netConn&&netConn.peerConnection;if(!pc)return;const st=await pc.getStats();let pair=null;const cand={};
+    st.forEach(r=>{if(r.type==='candidate-pair'&&(r.selected||r.nominated)&&r.state==='succeeded')pair=r;if(r.type==='local-candidate'||r.type==='remote-candidate')cand[r.id]=r});
+    if(pair){const l=cand[pair.localCandidateId],r=cand[pair.remoteCandidateId];netRoute=(l&&l.candidateType==='relay')||(r&&r.candidateType==='relay')?'RELAY':'DIRECT'}
+  }catch(_){}
+}
+function paintBadge(){
+  const b=$('netBadge');if(!netRole||phase==='menu'){if(!b.hidden)b.hidden=true;return}
+  const now=performance.now();if(now-routeAt>3000){routeAt=now;checkRoute()}
+  const ms=Math.round(netRole==='guest'?rtt:hostRtt);if(!ms){b.hidden=true;return}
+  b.hidden=false;b.textContent='PING '+ms+' ms'+(netRoute?' \u00b7 '+netRoute:'');
+  b.className=ms<90?'good':ms<180?'ok':'bad';
+}
+function leaveNet(msg){
+  const was=netRole;netSend({t:'bye'});netSend({t:'bye'});netSend({t:'bye'});closeNet();hostCode='';gGid=null;snapBuf=[];btnQ=[];clockOff=null;
+  netRole=null;myT=0;flipView=false;guestDeck=null;guestSpin=false;guestArenas=1;slot[1].human=null;netEv=[];
+  if(was==='guest'){arenaIdx=savedArena}
+  setArena(arenaIdx); // restores this device's arena difficulty
+  setBoard();hideAllOv();so=null;
+  $('endRewards').hidden=false;$('againBtn').hidden=false;$('netWait').hidden=true;$('menuBtn').textContent='Arenas';
+  setup();faceoff(true);phase='menu';score=[0,0];period=1;clock=PERIOD;updateHud();renderArenas();
+  $('menuOv').hidden=false;if(msg)toast(msg,'small',2200);
+  $('codeBox').hidden=true;$('hostBtn').disabled=false;$('joinBtn').disabled=false;netMsg('');paintHosting();
+}
+$('friendBtn').addEventListener('click',()=>{$('menuOv').hidden=true;$('netOv').hidden=false;
+  const h=hostingNow();$('codeBox').hidden=!h;$('hostBtn').disabled=h;if(!h)netMsg('');$('joinBtn').disabled=false;paintHosting()});
+$('hostBtn').addEventListener('click',()=>{audio();hostGame()});
+$('joinBtn').addEventListener('click',joinGame);
+$('joinCode').addEventListener('keydown',e=>{if(e.key==='Enter')joinGame()});
+$('netCancel').addEventListener('click',()=>{if(!netRole&&!hostingNow())closeNet();$('netOv').hidden=true;$('menuOv').hidden=false;paintHosting()});
+$('stopHost').addEventListener('click',()=>{closeNet();hostCode='';rememberCode('');$('codeBox').hidden=true;$('hostBtn').disabled=false;netMsg('Stopped hosting.');paintHosting()});
+$('copyCode').addEventListener('click',()=>{const c=hostCode;if(!c)return;
+  const done=()=>{$('copyCode').textContent='Copied';setTimeout(()=>$('copyCode').textContent='Copy code',1500)};
+  try{navigator.clipboard.writeText(c).then(done,()=>{})}catch(_){}});
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible'||!netPeer||netPeer.destroyed)return;
+  if(netPeer.disconnected){try{netPeer.reconnect()}catch(_){}}
+});
+addEventListener('pagehide',()=>{if(netRole)netSend({t:'bye'})});
+
+$('whoBtn').addEventListener('click',openProfiles);
+$('profClose').addEventListener('click',closeProfiles);
+$('newBtn').addEventListener('click',()=>createUser($('newName').value));
+$('newName').addEventListener('keydown',e=>{if(e.key==='Enter')createUser($('newName').value)});
+$('profList').addEventListener('click',e=>{
+  const list=profileList(),pk=e.target.closest('.profPick'),dl=e.target.closest('.profDel');
+  if(pk){const n=list[+pk.dataset.i];if(n){delArm='';switchUser(n);closeProfiles()}}
+  else if(dl){const n=list[+dl.dataset.i];if(n)deleteUser(n)}
+});
+function showEmote(team,id){
+  const em=emoteById(id);if(!em)return;
+  if(netRole==='host')netEv.push(['em',team,id]);
+  const mine=team===myT,el=$(mine?'emMe':'emThem');
+  const who=mine?(curUser||'You'):(netRole?(friendName||'Friend'):'CPU');
+  el.innerHTML='';const ic=document.createElement('span');ic.className='ic';ic.textContent=em.ic;
+  const t=document.createElement('span');const sm=document.createElement('small');sm.textContent=who;t.append(sm,document.createTextNode(em.tx));
+  el.append(ic,t);el.classList.add('on');tone(mine?880:660,.08,'sine',.04,mine?1100:820);
+  clearTimeout(emTimers[mine]);emTimers[mine]=setTimeout(()=>el.classList.remove('on'),2200);
+}
+function sendEmote(id){
+  if(!emotes.includes(id))return;
+  const now=performance.now();if(now<emCool)return;emCool=now+3000;
+  closeEmotePicker();$('emBtn').classList.add('cool');setTimeout(()=>$('emBtn').classList.remove('cool'),3000);
+  audio();
+  if(netRole==='guest'){showEmote(1,id);guestButton('e:'+id);return}
+  showEmote(myT,id);
+}
+function openEmotePicker(){
+  const pk=$('emPick');
+  pk.innerHTML=emotes.map((id,i)=>{const e=emoteById(id);return`<button class="emOpt" data-id="${id}"><span class="ic">${e.ic}</span><span class="tx">${e.tx}</span>${i<9?`<kbd>${i+1}</kbd>`:''}</button>`}).join('');
+  pk.hidden=false;$('emBtn').setAttribute('aria-expanded','true');
+}
+function closeEmotePicker(){$('emPick').hidden=true;$('emBtn').setAttribute('aria-expanded','false')}
+const emoteOpen=()=>!$('emPick').hidden;
+$('emBtn').addEventListener('click',()=>{emoteOpen()?closeEmotePicker():openEmotePicker()});
+$('emPick').addEventListener('click',e=>{const b=e.target.closest('.emOpt');if(b)sendEmote(b.dataset.id)});
+// the CPU has a little personality in solo games
+function cpuEmote(kind){
+  if(netRole||phase==='menu'||Math.random()>.35)return;
+  const pool={scored:['fire','cool','laugh','snipe','cooked','skill','clown'],conceded:['angry','cry','robbed','oops'],won:['gg','cool'],lost:['gg','cry']}[kind];
+  setTimeout(()=>showEmote(1,pool[Math.floor(Math.random()*pool.length)]),900+Math.random()*900);
+}
+/* ---------- boot ---------- */
+function start(d){
+  {const list=profileList(),cur=ls.get('slapshot-current');curUser=list.find(n=>n===cur)||list[0]||'';$('whoName').textContent=curUser||'-'}
+  loadProgress();
+  setup();setArena(d&&d.arenaIdx!=null?d.arenaIdx:arenaIdx);faceoff(true);phase='menu';
+  if(d&&d.score&&d.inGame&&(d.period||1)<3){
+    score=d.score;shots=d.shots||[0,0];period=d.period||1;clock=d.clock||PERIOD;
+    $('menuOv').hidden=true;faceoff(true);pausedFrom='faceoff';phase='paused';$('pauseOv').hidden=false;
+  }
+  new ResizeObserver(resize).observe($('stage'));resize();setBoard();updateHud();
+  if(!curUser)openProfiles(); // first time on this device: pick a username
+  window.claude?.hot?.snapshot?.(()=>({arenaIdx,score,shots,period,clock,inGame:!['menu','end'].includes(phase)}));
+  requestAnimationFrame(frame);
+}
+window.claude?.hot?.ready?window.claude.hot.ready(start):start(window.claude?.hot?.data??{});
+})();
+</script>
+
+</body>
+</html>
